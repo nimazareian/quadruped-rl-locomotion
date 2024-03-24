@@ -25,6 +25,8 @@ while True:
         i = 0
     action = np.random.randn(action_dim)
     nstate, reward, terminated, truncated, info = env.step(action)
+    # nstate is comprised of 37 floats
+    # More detail: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html
 
     # HERE is your favorite RL algorithm
 
