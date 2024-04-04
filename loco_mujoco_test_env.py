@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from pathlib import Path
 
 import numpy as np
 from loco_mujoco import LocoEnv
@@ -11,7 +12,7 @@ import gymnasium as gym
 from tqdm import tqdm
 
 ENV_NAME = "UnitreeA1.simple.perfect"
-TIME_STEPS_PER_SAVE = 25_000
+TIME_STEPS_PER_SAVE = 100_000
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
@@ -23,10 +24,11 @@ def my_reward_function(state, action, next_state):
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
-def train():
+def train(starting_model=None):
     # Can pass a custom reward function using:
     # reward_type="custom", reward_params=dict(reward_callback=my_reward_function)
 
+    # TODO: Vectorize the envrionment so it can train in parallel multiple instances
     # https://stable-baselines.readthedocs.io/en/master/guide/vec_envs.html
     # https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api
     # https://pythonprogramming.net/custom-environment-reinforcement-learning-stable-baselines-3-tutorial/?completed=/saving-and-loading-reinforcement-learning-stable-baselines-3-tutorial/
@@ -41,11 +43,14 @@ def train():
     vec_env = gym.make("LocoMujoco", 
                        env_name=ENV_NAME)
 
-
-    model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
-
+    if starting_model:
+        model = PPO.load(path=starting_model, env=vec_env, verbose=1, tensorboard_log=LOG_DIR)
+        time_steps = int(Path(starting_model).stem.split("_")[-1]) + TIME_STEPS_PER_SAVE
+    else:
+        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
+        time_steps = TIME_STEPS_PER_SAVE
+    
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-    time_steps = TIME_STEPS_PER_SAVE
     while True:
         model.learn(total_timesteps=TIME_STEPS_PER_SAVE, reset_num_timesteps=False)
         model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{time_steps}")
@@ -71,24 +76,32 @@ def train():
 def test(model_path):
     env = gym.make("LocoMujoco", 
                     env_name=ENV_NAME)
-    obs, _ = env.reset()
 
-    model = PPO.load(model_path, env=env)
+    model = PPO.load(path=model_path, env=env, verbose=1)
+
+    NUM_EPISODES = 10
     episode_reward = 0
-    while True:
-        action, _ = model.predict(obs)
-        nstate, reward, terminated, truncated, info = env.step(action)
-        episode_reward += reward
+    episode_length = 0
+    for _ in range(NUM_EPISODES):
+        obs, _ = env.reset()
         env.render()
+        while True:
+            action, _ = model.predict(obs)
+            nstate, reward, terminated, truncated, info = env.step(action)
+            episode_reward += reward
+            env.render()
+            time.sleep(0.1)
+            episode_length += 1
 
-        if terminated:
-            break
+            if terminated:
+                break
 
-    print(f"Total episode reward: {episode_reward}")
+    print(f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true")
+    parser.add_argument("--existing_model_path", help="Path to the model to continue training", default=None)
     parser.add_argument("--test", help="Path to the model to test")
     args = parser.parse_args()
 
@@ -96,6 +109,6 @@ if __name__ == "__main__":
     os.makedirs(LOG_DIR, exist_ok=True)
 
     if args.train:
-        train()
+        train(args.existing_model_path)
     elif args.test:
         test(args.test)

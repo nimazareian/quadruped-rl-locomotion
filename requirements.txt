@@ -1,8 +1,9 @@
 mujoco-python-viewer==0.1.4
-loco-mujoco==0.2
+loco-mujoco==0.1 # 0.2 fixes a bug with custom rewards, but it seems like it also introduces new error with rendering...
 torch==2.2.1
 numpy
 ipykernel
 stable-baselines3==2.3.0
 tqdm
 tensorboard
+protobuf==4.25.3 # Tensorboard throws an error with newer versions of protobuf
