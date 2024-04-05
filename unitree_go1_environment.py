@@ -6,6 +6,8 @@ from gymnasium import spaces
 # LocoMujoco: https://github.com/robfiras/loco-mujoco/blob/master/loco_mujoco/environments/quadrupeds/unitreeA1.py#L838
 # PyBullet: https://github.com/arthurchevalley/Legged-Robots-Projects/blob/main/Quadruped%20robot%20walking/Code/env/quadruped_gym_env.py
 # PyChrono sim: https://github.com/projectchrono/gym-chrono/blob/86db0c15f909de22906229e38d8806efd4f57a5d/gym_chrono/envs/legged/quadruped_walk.py#L52
+# Unitree's envs in IsaacSim (includes joint angles): https://github.com/unitreerobotics/unitree_rl_gym/blob/main/legged_gym/envs/base/legged_robot.py
+# Environment which reads state values (useful) but uses deprecated MujocoEnv: https://github.com/stillonearth/continuous_control-unitree-a1/blob/master/environments/g1.py
 class UnitreeGo1Env(gym.Env):
     """Custom Environment that follows gym interface."""
 
