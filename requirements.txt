@@ -7,3 +7,4 @@ stable-baselines3==2.3.0
 tqdm
 tensorboard
 protobuf==4.25.3 # Tensorboard throws an error with newer versions of protobuf
+rich

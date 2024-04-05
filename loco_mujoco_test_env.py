@@ -40,6 +40,8 @@ def train(starting_model=None):
     #     vec_env_cls=SubprocVecEnv,
     # )
 
+    # TODO: What is the reward function used by LocoMujoco? 
+    #       How does it detect termination?
     vec_env = gym.make("LocoMujoco", 
                        env_name=ENV_NAME)
 
@@ -52,7 +54,8 @@ def train(starting_model=None):
     
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
     while True:
-        model.learn(total_timesteps=TIME_STEPS_PER_SAVE, reset_num_timesteps=False)
+        model.learn(total_timesteps=TIME_STEPS_PER_SAVE, reset_num_timesteps=False, progress_bar=True)
+        # TODO: Could use CheckpointCallback and EvalCallback to save the best model automatically.
         model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{time_steps}")
         time_steps += TIME_STEPS_PER_SAVE
 
@@ -83,18 +86,23 @@ def test(model_path):
     episode_reward = 0
     episode_length = 0
     for _ in range(NUM_EPISODES):
-        obs, _ = env.reset()
-        env.render()
+        vec_env = model.get_env()
+        obs = vec_env.reset()
+        vec_env.render()
+        extra = 0
         while True:
-            action, _ = model.predict(obs)
-            nstate, reward, terminated, truncated, info = env.step(action)
+            action, _ = model.predict(obs, deterministic=True)
+            # print(action)
+            nstate, reward, dones, info = vec_env.step(action)
             episode_reward += reward
-            env.render()
-            time.sleep(0.1)
+            vec_env.render()
+            time.sleep(0.01)
             episode_length += 1
 
-            if terminated:
-                break
+            if dones:
+                extra -= 1
+                if extra <= 0:
+                    break
 
     print(f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}")
 
@@ -108,7 +116,9 @@ if __name__ == "__main__":
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    if args.train:
-        train(args.existing_model_path)
-    elif args.test:
-        test(args.test)
+    test("models/2024-04-04_17-54-02/ppo_loco_mujoco_1300000.zip")
+    
+    # if args.train:
+    #     train(args.existing_model_path)
+    # elif args.test:
+    #     test(args.test)
