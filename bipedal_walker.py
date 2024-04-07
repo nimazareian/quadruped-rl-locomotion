@@ -37,7 +37,6 @@ def train(starting_model=None):
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
     
-    # with env.no_render():
     env.requires_render = False
     model.learn(
         total_timesteps=1_500_000,

@@ -8,11 +8,13 @@ from loco_mujoco import LocoEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
 ENV_NAME = "UnitreeA1.simple.perfect"
-TIME_STEPS_PER_SAVE = 10_000
+TOTAL_TRAINING_TIMESTEPS = 1_000_000
+EVAL_FREQUENCY = 25_000
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
@@ -40,7 +42,7 @@ def train(starting_model=None):
 
     # TODO: What is the reward function used by LocoMujoco?
     #       How does it detect termination?
-    vec_env = gym.make(
+    env = gym.make(
         "LocoMujoco",
         env_name=ENV_NAME,
         # Can pass a custom reward function using:
@@ -48,25 +50,33 @@ def train(starting_model=None):
         # reward_params=dict(reward_callback=my_reward_function),
     )
 
-    if starting_model:
-        model = PPO.load(
-            path=starting_model, env=vec_env, verbose=1, tensorboard_log=LOG_DIR
-        )
-        time_steps = int(Path(starting_model).stem.split("_")[-1]) + TIME_STEPS_PER_SAVE
-    else:
-        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
-        time_steps = TIME_STEPS_PER_SAVE
-
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
+    run_name = f"ppo_loco_mujoco_{train_time}"
+
+    eval_callback = EvalCallback(
+        env,
+        best_model_save_path=f"{MODEL_DIR}/{run_name}",
+        log_path=LOG_DIR,
+        eval_freq=EVAL_FREQUENCY,
+        deterministic=True,
+        render=True,
+    )
+
+    if starting_model is not None:
+        model = PPO.load(
+            path=starting_model, env=env, verbose=1, tensorboard_log=LOG_DIR
+        )
+    else:
+        model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=LOG_DIR)
+
     while True:
         model.learn(
-            total_timesteps=TIME_STEPS_PER_SAVE,
+            total_timesteps=TOTAL_TRAINING_TIMESTEPS,
             reset_num_timesteps=False,
             progress_bar=True,
+            tb_log_name=run_name,
+            callback=eval_callback,
         )
-        # TODO: Could use CheckpointCallback and EvalCallback to save the best model automatically.
-        model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{time_steps}")
-        time_steps += TIME_STEPS_PER_SAVE
 
 
 def test(model_path):
@@ -74,25 +84,31 @@ def test(model_path):
 
     model = PPO.load(path=model_path, env=env, verbose=1)
 
-    NUM_EPISODES = 1
+    NUM_EPISODES = 5
+    NUM_EXTRA_STEPS_AFTER_TERMINATION = 0
+
     episode_reward = 0
     episode_length = 0
-    for _ in range(NUM_EPISODES):
+    for _ in tqdm(range(NUM_EPISODES)):
         obs, _ = env.reset()
         env.render()
-        extra = 0
+        extra = NUM_EXTRA_STEPS_AFTER_TERMINATION
+
         while True:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
+
+            # Render the environment at ~100fps
             env.render()
             time.sleep(0.01)
-            episode_length += 1
 
             if terminated or truncated:
                 extra -= 1
                 if extra <= 0:
                     break
+            else:
+                episode_length += 1
 
     print(
         f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}"
