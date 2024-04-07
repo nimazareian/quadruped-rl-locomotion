@@ -23,9 +23,9 @@ def train(starting_model=None):
     env = gym.make("BipedalWalker-v3")
 
     # Use deterministic actions for evaluation
-    eval_callback = EvalCallback(env, best_model_save_path=MODEL_DIR + "/ppo_bipedal_walker",
-                                log_path=LOG_DIR, eval_freq=20_000,
-                                deterministic=True, render=False)
+    eval_callback = EvalCallback(env, best_model_save_path=MODEL_DIR + "/ppo_bipedal_walker2",
+                                log_path=LOG_DIR, eval_freq=10_000,
+                                deterministic=True, render=True)
     
     if starting_model:
         model = PPO.load(
@@ -36,8 +36,11 @@ def train(starting_model=None):
 
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
+    
+    # with env.no_render():
+    env.requires_render = False
     model.learn(
-        total_timesteps=100_000_000,
+        total_timesteps=1_500_000,
         reset_num_timesteps=False,
         progress_bar=True,
         tb_log_name=f"ppo_bipedal_walker_{train_time}",
@@ -46,7 +49,10 @@ def train(starting_model=None):
 
 
 def test(model_path):
-    env = gym.make("BipedalWalker-v3") # render_mode="human"
+    env = gym.make(
+        "BipedalWalker-v3", 
+        render_mode="human"
+    )
 
     print(f"Testing model: {model_path}")
     model = PPO.load(path=model_path, env=env, verbose=1)
@@ -69,6 +75,7 @@ def test(model_path):
                 if extra <= 0:
                     break
 
+    env.close()
     print(
         f"Avg episode reward: {episode_reward / NUM_EPISODES}, avg episode length: {episode_length / NUM_EPISODES}"
     )
