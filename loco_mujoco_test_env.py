@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 from loco_mujoco import LocoEnv
+from loco_mujoco.utils.reward import VelocityVectorReward
+
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
@@ -22,8 +24,12 @@ MODEL_DIR = "models"
 LOG_DIR = "logs"
 
 
-# define what ever reward function you want
+# LocoMujoco reward helper functions: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.utils.html#module-loco_mujoco.utils.reward
 def my_reward_function(state, action, next_state):
+    # TODO: Print the state, action, and next_state to understand the data structure
+    # Could use VelocityVectorReward: https://github.com/robfiras/loco-mujoco/blob/c4f0e546725d5681a3ec865d3427ce5fdbb7526e/loco_mujoco/environments/quadrupeds/unitreeA1.py#L491
+    # Power = Torque * Angular Velocity -> Minimize power/energy usage
+
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
@@ -69,14 +75,13 @@ def train(starting_model=None):
     else:
         model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=LOG_DIR)
 
-    while True:
-        model.learn(
-            total_timesteps=TOTAL_TRAINING_TIMESTEPS,
-            reset_num_timesteps=False,
-            progress_bar=True,
-            tb_log_name=run_name,
-            callback=eval_callback,
-        )
+    model.learn(
+        total_timesteps=TOTAL_TRAINING_TIMESTEPS,
+        reset_num_timesteps=False,
+        progress_bar=True,
+        tb_log_name=run_name,
+        callback=eval_callback,
+    )
 
 
 def test(model_path):
