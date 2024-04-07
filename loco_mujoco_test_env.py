@@ -10,11 +10,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 import gymnasium as gym
 from tqdm import tqdm
+import time
 
-ENV_NAME = "UnitreeA1.simple.perfect"
-TIME_STEPS_PER_SAVE = 100_000
-NUM_PARALLEL_ENVS = 4
-SEED = 0
 
 MODEL_DIR = "models"
 LOG_DIR = "logs"
@@ -24,7 +21,7 @@ def my_reward_function(state, action, next_state):
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
-def train(starting_model=None):
+def train(args):
     # Can pass a custom reward function using:
     # reward_type="custom", reward_params=dict(reward_callback=my_reward_function)
 
@@ -40,44 +37,23 @@ def train(starting_model=None):
     #     vec_env_cls=SubprocVecEnv,
     # )
 
-    vec_env = gym.make("LocoMujoco", 
-                       env_name=ENV_NAME)
+    # vec_env = gym.make("LocoMujoco", 
+    #                    env_name=ENV_NAME)
+    vec_env = make_vec_env(args.env, n_envs=4)
 
-    if starting_model:
-        model = PPO.load(path=starting_model, env=vec_env, verbose=1, tensorboard_log=LOG_DIR)
-        time_steps = int(Path(starting_model).stem.split("_")[-1]) + TIME_STEPS_PER_SAVE
-    else:
-        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
-        time_steps = TIME_STEPS_PER_SAVE
-    
+    model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-    while True:
-        model.learn(total_timesteps=TIME_STEPS_PER_SAVE, reset_num_timesteps=False)
-        model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{time_steps}")
-        time_steps += TIME_STEPS_PER_SAVE
+    model.learn(total_timesteps=args.time_steps_per_save, reset_num_timesteps=False)
+    model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{args.time_steps_per_save}")
+    del model
+    model = PPO.load(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{args.time_steps_per_save}")
 
-    # obs, info = vec_env.reset()
-    # vec_env.render()
-    # terminated = False
-    # i = 0
-    # for _ in tqdm(range(10_000)):
-    #     if i == 1000 or terminated:
-    #         vec_env.reset()
-    #         i = 0
 
-    #     action, _ = model.predict(obs)
-    #     nstate, reward, terminated, truncated, info = vec_env.step(action)
-    #     # nstate is comprised of 37 floats, and action is comprised of 12 floats (Unclear what the units are)
-    #     # More detail: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html
-
-    #     vec_env.render()
-    #     i += 1
-
-def test(model_path):
-    env = gym.make("LocoMujoco", 
-                    env_name=ENV_NAME)
-
-    model = PPO.load(path=model_path, env=env, verbose=1)
+def test(args):
+    env = gym.make(args.env, render_mode="human")
+    # env = make_vec_env(args.env, n_envs=4)
+    
+    model = PPO.load(path=args.model_path)
 
     NUM_EPISODES = 10
     episode_reward = 0
@@ -100,15 +76,19 @@ def test(model_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train", action="store_true")
-    parser.add_argument("--existing_model_path", help="Path to the model to continue training", default=None)
-    parser.add_argument("--test", help="Path to the model to test")
+    parser.add_argument("--run", type=str, default="train", help="test or train")
+    parser.add_argument("--env", type=str, default="CartPole-v1", help="Environment to train/test on")
+    parser.add_argument("--seed", type=float, default=0)
+    parser.add_argument("--num_parallel_envs", type=int, default=4)
+    parser.add_argument("--time_steps_per_save", type= int, default=100000)
+    parser.add_argument("--existing_model_path", type= float, default=None, help="Path to the model to continue training")
+    parser.add_argument("--model_path", type= str, default=None, help="Path to the model to test")
     args = parser.parse_args()
 
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    if args.train:
-        train(args.existing_model_path)
-    elif args.test:
-        test(args.test)
+    if args.run == "train":
+        train(args)
+    elif args.run == "test":
+        test(args)
