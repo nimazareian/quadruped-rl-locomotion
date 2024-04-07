@@ -115,10 +115,8 @@ if __name__ == "__main__":
 
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
-
-    test("models/2024-04-04_17-54-02/ppo_loco_mujoco_1300000.zip")
     
-    # if args.train:
-    #     train(args.existing_model_path)
-    # elif args.test:
-    #     test(args.test)
+    if args.train:
+        train(args.existing_model_path)
+    elif args.test:
+        test(args.test)
