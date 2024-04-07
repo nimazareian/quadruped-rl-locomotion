@@ -1,22 +1,20 @@
 import argparse
 import os
 import time
-from pathlib import Path
 
 import numpy as np
 from loco_mujoco import LocoEnv
-from loco_mujoco.utils.reward import VelocityVectorReward
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+# from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
-ENV_NAME = "UnitreeA1.simple.perfect"
-TOTAL_TRAINING_TIMESTEPS = 1_000_000
-EVAL_FREQUENCY = 25_000
+# ENV_NAME = "UnitreeA1.simple.perfect"
+# TOTAL_TRAINING_TIMESTEPS = 1_000_000
+# EVAL_FREQUENCY = 25_000
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
@@ -33,7 +31,7 @@ def my_reward_function(state, action, next_state):
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
-def train(starting_model=None):
+def train(args):
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
     # https://stable-baselines.readthedocs.io/en/master/guide/vec_envs.html
     # https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api
@@ -50,7 +48,7 @@ def train(starting_model=None):
     #       How does it detect termination?
     env = gym.make(
         "LocoMujoco",
-        env_name=ENV_NAME,
+        env_name=args.env,
         # Can pass a custom reward function using:
         # reward_type="custom",
         # reward_params=dict(reward_callback=my_reward_function),
@@ -63,20 +61,20 @@ def train(starting_model=None):
         env,
         best_model_save_path=f"{MODEL_DIR}/{run_name}",
         log_path=LOG_DIR,
-        eval_freq=EVAL_FREQUENCY,
+        eval_freq=args.eval_frequency,
         deterministic=True,
         render=True,
     )
 
-    if starting_model is not None:
+    if args.model_path is not None:
         model = PPO.load(
-            path=starting_model, env=env, verbose=1, tensorboard_log=LOG_DIR
+            path=args.model_path, env=env, verbose=1, tensorboard_log=LOG_DIR
         )
     else:
         model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=LOG_DIR)
 
     model.learn(
-        total_timesteps=TOTAL_TRAINING_TIMESTEPS,
+        total_timesteps=args.total_timesteps,
         reset_num_timesteps=False,
         progress_bar=True,
         tb_log_name=run_name,
@@ -84,10 +82,10 @@ def train(starting_model=None):
     )
 
 
-def test(model_path):
-    env = gym.make("LocoMujoco", env_name=ENV_NAME, render_mode="human")
+def test(args):
+    env = gym.make("LocoMujoco", env_name=args.env, render_mode="human")
 
-    model = PPO.load(path=model_path, env=env, verbose=1)
+    model = PPO.load(path=args.model_path, env=env, verbose=1)
 
     NUM_EPISODES = 5
     NUM_EXTRA_STEPS_AFTER_TERMINATION = 0
@@ -122,19 +120,17 @@ def test(model_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train", action="store_true")
-    parser.add_argument(
-        "--existing_model_path",
-        help="Path to the model to continue training",
-        default=None,
-    )
-    parser.add_argument("--test", help="Path to the model to test")
+    parser.add_argument("--env", type= str, default="UnitreeA1.simple.perfect")
+    parser.add_argument("--total_timesteps", type=int, default=100_000)
+    parser.add_argument("--eval_frequency", type=int, default=25_000)
+    parser.add_argument("--model_path", type= str, default=None, help="Path to the model to continue training")
+    parser.add_argument("--run", type=str, default="train", choices=["train", "test"])
     args = parser.parse_args()
 
     os.makedirs(MODEL_DIR, exist_ok=True)
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    if args.train:
-        train(args.existing_model_path)
-    elif args.test:
-        test(args.test)
+    if args.run == "train":
+        train(args)
+    elif args.run == "test":
+        test(args)
