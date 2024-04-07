@@ -28,7 +28,7 @@ LOG_DIR = "logs"
 def my_reward_function(state, action, next_state):
     # TODO: Print the state, action, and next_state to understand the data structure
     # Could use VelocityVectorReward: https://github.com/robfiras/loco-mujoco/blob/c4f0e546725d5681a3ec865d3427ce5fdbb7526e/loco_mujoco/environments/quadrupeds/unitreeA1.py#L491
-    # Power = Torque * Angular Velocity -> Minimize power/energy usage
+    # Power = Torque * Angular Velocity -> Minimize power/energy usage (i.e. reward -= power)
 
     return -np.mean(action)  # here we just return the negative mean of the action
 
