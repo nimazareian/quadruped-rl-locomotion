@@ -8,16 +8,19 @@ from loco_mujoco import LocoEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
 ENV_NAME = "UnitreeA1.simple.perfect"
-TIME_STEPS_PER_SAVE = 100_000
+TOTAL_TRAINING_TIMESTEPS = 1_000_000
+EVAL_FREQUENCY = 25_000
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
 MODEL_DIR = "models"
 LOG_DIR = "logs"
+
 
 # define what ever reward function you want
 def my_reward_function(state, action, next_state):
@@ -25,9 +28,6 @@ def my_reward_function(state, action, next_state):
 
 
 def train(starting_model=None):
-    # Can pass a custom reward function using:
-    # reward_type="custom", reward_params=dict(reward_callback=my_reward_function)
-
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
     # https://stable-baselines.readthedocs.io/en/master/guide/vec_envs.html
     # https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api
@@ -40,68 +40,89 @@ def train(starting_model=None):
     #     vec_env_cls=SubprocVecEnv,
     # )
 
-    vec_env = gym.make("LocoMujoco", 
-                       env_name=ENV_NAME)
+    # TODO: What is the reward function used by LocoMujoco?
+    #       How does it detect termination?
+    env = gym.make(
+        "LocoMujoco",
+        env_name=ENV_NAME,
+        # Can pass a custom reward function using:
+        # reward_type="custom",
+        # reward_params=dict(reward_callback=my_reward_function),
+    )
 
-    if starting_model:
-        model = PPO.load(path=starting_model, env=vec_env, verbose=1, tensorboard_log=LOG_DIR)
-        time_steps = int(Path(starting_model).stem.split("_")[-1]) + TIME_STEPS_PER_SAVE
-    else:
-        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
-        time_steps = TIME_STEPS_PER_SAVE
-    
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
+    run_name = f"ppo_loco_mujoco_{train_time}"
+
+    eval_callback = EvalCallback(
+        env,
+        best_model_save_path=f"{MODEL_DIR}/{run_name}",
+        log_path=LOG_DIR,
+        eval_freq=EVAL_FREQUENCY,
+        deterministic=True,
+        render=True,
+    )
+
+    if starting_model is not None:
+        model = PPO.load(
+            path=starting_model, env=env, verbose=1, tensorboard_log=LOG_DIR
+        )
+    else:
+        model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=LOG_DIR)
+
     while True:
-        model.learn(total_timesteps=TIME_STEPS_PER_SAVE, reset_num_timesteps=False)
-        model.save(f"{MODEL_DIR}/{train_time}/ppo_loco_mujoco_{time_steps}")
-        time_steps += TIME_STEPS_PER_SAVE
+        model.learn(
+            total_timesteps=TOTAL_TRAINING_TIMESTEPS,
+            reset_num_timesteps=False,
+            progress_bar=True,
+            tb_log_name=run_name,
+            callback=eval_callback,
+        )
 
-    # obs, info = vec_env.reset()
-    # vec_env.render()
-    # terminated = False
-    # i = 0
-    # for _ in tqdm(range(10_000)):
-    #     if i == 1000 or terminated:
-    #         vec_env.reset()
-    #         i = 0
-
-    #     action, _ = model.predict(obs)
-    #     nstate, reward, terminated, truncated, info = vec_env.step(action)
-    #     # nstate is comprised of 37 floats, and action is comprised of 12 floats (Unclear what the units are)
-    #     # More detail: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html
-
-    #     vec_env.render()
-    #     i += 1
 
 def test(model_path):
-    env = gym.make("LocoMujoco", 
-                    env_name=ENV_NAME)
+    env = gym.make("LocoMujoco", env_name=ENV_NAME, render_mode="human")
 
     model = PPO.load(path=model_path, env=env, verbose=1)
 
-    NUM_EPISODES = 10
+    NUM_EPISODES = 5
+    NUM_EXTRA_STEPS_AFTER_TERMINATION = 0
+
     episode_reward = 0
     episode_length = 0
-    for _ in range(NUM_EPISODES):
+    for _ in tqdm(range(NUM_EPISODES)):
         obs, _ = env.reset()
         env.render()
+        extra = NUM_EXTRA_STEPS_AFTER_TERMINATION
+
         while True:
-            action, _ = model.predict(obs)
-            nstate, reward, terminated, truncated, info = env.step(action)
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
+
+            # Render the environment at ~100fps
             env.render()
-            time.sleep(0.1)
-            episode_length += 1
+            time.sleep(0.01)
 
-            if terminated:
-                break
+            if terminated or truncated:
+                extra -= 1
+                if extra <= 0:
+                    break
+            else:
+                episode_length += 1
 
-    print(f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}")
+    print(
+        f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}"
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", action="store_true")
-    parser.add_argument("--existing_model_path", help="Path to the model to continue training", default=None)
+    parser.add_argument(
+        "--existing_model_path",
+        help="Path to the model to continue training",
+        default=None,
+    )
     parser.add_argument("--test", help="Path to the model to test")
     args = parser.parse_args()
 
