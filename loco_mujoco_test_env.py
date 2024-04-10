@@ -27,7 +27,14 @@ def my_reward_function(state, action, next_state):
     # TODO: Print the state, action, and next_state to understand the data structure
     # Could use VelocityVectorReward: https://github.com/robfiras/loco-mujoco/blob/c4f0e546725d5681a3ec865d3427ce5fdbb7526e/loco_mujoco/environments/quadrupeds/unitreeA1.py#L491
     # Power = Torque * Angular Velocity -> Minimize power/energy usage (i.e. reward -= power)
-
+    
+    # Observation & Action spaces: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html#unitree-a1
+    # Fields and indices: https://github.com/robfiras/loco-mujoco/blob/4a9e87563e112b8da48a27cbe3df13d743efd830/loco_mujoco/environments/quadrupeds/unitreeA1.py#L48
+    # Print the length of the variables and the variables values
+    # len(action) = 12
+    # len(state) = 44
+    # len(next_state) = 44
+    # Positive rewards, get standing.
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
@@ -49,9 +56,11 @@ def train(args):
     env = gym.make(
         "LocoMujoco",
         env_name=args.env,
-        # Can pass a custom reward function using:
-        # reward_type="custom",
-        # reward_params=dict(reward_callback=my_reward_function),
+        action_mode="torque",
+        setup_random_rot=False,
+        default_target_velocity=0.5,
+        reward_type="custom",
+        reward_params=dict(reward_callback=my_reward_function),
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
