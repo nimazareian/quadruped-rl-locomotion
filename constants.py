@@ -8,11 +8,13 @@ class ObservationIndex(IntEnum):
     Note that trunk_tx_pos and trunk_ty_pos are ommitted by LocoMujoco
     """
     
-    # Joint Positions
+    # --- Joint Positions ---
+    # Trunk positions are in the world frame
+    # Note that trunk tx and ty are ommitted by LocoMujoco
     trunk_tz_pos = 0
-    trunk_list_pos = 1
-    trunk_tilt_pos = 2
-    trunk_rotation_pos = 3
+    trunk_list_pos = 1     # roll
+    trunk_tilt_pos = 2     # pitch
+    trunk_rotation_pos = 3 # yaw
     
     FR_hip_joint_pos = 4
     FR_thigh_joint_pos = 5
@@ -30,7 +32,8 @@ class ObservationIndex(IntEnum):
     RL_thigh_joint_pos = 14
     RL_calf_joint_pos = 15
 
-    # Joint Velocities
+    # --- Joint Velocities ---
+    # Trunk velocities are in the world frame
     trunk_tx_vel = 16
     trunk_ty_vel = 17
     trunk_tz_vel = 18
@@ -55,8 +58,8 @@ class ObservationIndex(IntEnum):
     RL_calf_joint_vel = 33
 
     desired_sin_cos_vel = 34
-    
-    desired_vel = 36
+    # Index 35 is ignored
+    desired_vel = 36 # May be buggy
 
 
 @unique

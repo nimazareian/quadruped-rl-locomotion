@@ -1,0 +1,17 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Train LocoMujoco Test Env",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/loco_mujoco_test_env.py",
+            "console": "integratedTerminal",
+            "args": "--run train",
+            "justMyCode": false
+        }
+    ]
+}
