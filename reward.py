@@ -5,7 +5,8 @@ from constants import ObservationIndex
 def combined_reward_function(state, action, next_state):
     vel_tracking_rew = reward_tracking_velocity(state, action, next_state)
     standing_rew = reward_standing(state, action, next_state)
-    return np.exp(np.sum([standing_rew]))
+    # print(f"{vel_tracking_rew=}, {standing_rew=}")
+    return np.sum(np.exp([standing_rew, vel_tracking_rew]))
 
 
 def reward_tracking_velocity(state, action, next_state):
@@ -14,8 +15,7 @@ def reward_tracking_velocity(state, action, next_state):
         [state[ObservationIndex.trunk_tx_vel], state[ObservationIndex.trunk_ty_vel]]
     )
 
-    # L2 norm on the velocity difference
-    # TODO: Reward should be non-negative, and increase the closer we are to the desired velocity
+    # Negative L2 norm on the velocity difference
     return -np.linalg.norm(desired_vel - curr_global_vel)
 
 
