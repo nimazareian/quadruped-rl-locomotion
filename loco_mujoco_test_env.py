@@ -12,7 +12,8 @@ from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
-from constants import ObservationIndex
+from reward import combined_reward_function
+
 
 NUM_PARALLEL_ENVS = 4
 SEED = 0
@@ -21,40 +22,9 @@ MODEL_DIR = "models"
 LOG_DIR = "logs"
 
 
-# LocoMujoco reward helper functions: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.utils.html#module-loco_mujoco.utils.reward
-def my_reward_function(state, action, next_state):
-    # TODO: Print the state, action, and next_state to understand the data structure
-    # Could use VelocityVectorReward: https://github.com/robfiras/loco-mujoco/blob/c4f0e546725d5681a3ec865d3427ce5fdbb7526e/loco_mujoco/environments/quadrupeds/unitreeA1.py#L491
-    # Power = Torque * Angular Velocity -> Minimize power/energy usage (i.e. reward -= power)
-    
-    # Observation & Action spaces: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html#unitree-a1
-    # Fields and indices: https://github.com/robfiras/loco-mujoco/blob/4a9e87563e112b8da48a27cbe3df13d743efd830/loco_mujoco/environments/quadrupeds/unitreeA1.py#L48
-    # Print the length of the variables and the variables values
-    # Should always give positive rewards and have early termination which gives 0 rewards.
-    # This way, the model will try to minimize early termination! get standing.
-    
-    vx_local = state[ObservationIndex.trunk_tx_vel]
-    vy_local = state[ObservationIndex.trunk_ty_vel]
-    
-    desired_vel_angle_cos_sin = state[ObservationIndex.desired_sin_cos_vel]
-    desired_vel = state[ObservationIndex.desired_vel] * desired_vel_angle_cos_sin
-    
-    return -np.mean(action)  # here we just return the negative mean of the action
-
 
 def train(args):
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
-    # https://stable-baselines.readthedocs.io/en/master/guide/vec_envs.html
-    # https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api
-    # https://pythonprogramming.net/custom-environment-reinforcement-learning-stable-baselines-3-tutorial/?completed=/saving-and-loading-reinforcement-learning-stable-baselines-3-tutorial/
-    # vec_env = make_vec_env(
-    #     "LocoMujoco",
-    #     env_name=ENV_NAME,
-    #     n_envs=NUM_PARALLEL_ENVS,
-    #     seed=SEED,
-    #     vec_env_cls=SubprocVecEnv,
-    # )
-
     # TODO: What is the reward function used by LocoMujoco?
     #       How does it detect termination?
     env = gym.make(
@@ -65,8 +35,9 @@ def train(args):
         use_foot_forces=False,
         default_target_velocity=0.5,
         setup_random_rot=False,
+        render_mode="human",
         reward_type="custom",
-        reward_params=dict(reward_callback=my_reward_function),
+        reward_params=dict(reward_callback=combined_reward_function),
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -78,7 +49,7 @@ def train(args):
         log_path=LOG_DIR,
         eval_freq=args.eval_frequency,
         deterministic=True,
-        render=True,
+        render=False,
     )
 
     if args.model_path is not None:
@@ -136,7 +107,7 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type= str, default="UnitreeA1.simple.perfect")
-    parser.add_argument("--total_timesteps", type=int, default=100_000)
+    parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--eval_frequency", type=int, default=25_000)
     parser.add_argument("--model_path", type= str, default=None, help="Path to the model to continue training")
     parser.add_argument("--run", type=str, default="train", choices=["train", "test"])
