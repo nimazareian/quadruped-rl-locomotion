@@ -12,9 +12,8 @@ from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
-# ENV_NAME = "UnitreeA1.simple.perfect"
-# TOTAL_TRAINING_TIMESTEPS = 1_000_000
-# EVAL_FREQUENCY = 25_000
+from constants import ObservationIndex
+
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
@@ -31,10 +30,15 @@ def my_reward_function(state, action, next_state):
     # Observation & Action spaces: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.environments.quadrupeds.html#unitree-a1
     # Fields and indices: https://github.com/robfiras/loco-mujoco/blob/4a9e87563e112b8da48a27cbe3df13d743efd830/loco_mujoco/environments/quadrupeds/unitreeA1.py#L48
     # Print the length of the variables and the variables values
-    # len(action) = 12
-    # len(state) = 44
-    # len(next_state) = 44
-    # Positive rewards, get standing.
+    # Should always give positive rewards and have early termination which gives 0 rewards.
+    # This way, the model will try to minimize early termination! get standing.
+    
+    vx_local = state[ObservationIndex.trunk_tx_vel]
+    vy_local = state[ObservationIndex.trunk_ty_vel]
+    
+    desired_vel_angle_cos_sin = state[ObservationIndex.desired_sin_cos_vel]
+    desired_vel = state[ObservationIndex.desired_vel] * desired_vel_angle_cos_sin
+    
     return -np.mean(action)  # here we just return the negative mean of the action
 
 
@@ -56,9 +60,11 @@ def train(args):
     env = gym.make(
         "LocoMujoco",
         env_name=args.env,
+        # The next 3 arguments can not change for the "perfect" environment
         action_mode="torque",
-        setup_random_rot=False,
+        use_foot_forces=False,
         default_target_velocity=0.5,
+        setup_random_rot=False,
         reward_type="custom",
         reward_params=dict(reward_callback=my_reward_function),
     )
