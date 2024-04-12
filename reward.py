@@ -2,15 +2,16 @@ import numpy as np
 from constants import ActionIndex, ObservationIndex
 
 
-class RewardHandler:
+class RewardCalculator:
     """Class used to calculate the reward for the Unitree A1 environment."""
     
-    desired_velocity = np.array([0.5, 0.0])
+    desired_velocity = np.array([0.0, 0.0])
     
     tracking_velocity_sigma = 0.25
     max_xy_vel_tracking_reward = 0.8
     max_standing_reward = 0.1
     max_minimal_action_reward = 0.5
+    desired_height = 0.0
     
     def __init__(self):
         self.prev_action = np.zeros(len(ActionIndex))
@@ -38,7 +39,7 @@ class RewardHandler:
 
     def __reward_standing(self, state, action, next_state):
         # Penalize the agent for not being at 0 height
-        return np.exp(-state[ObservationIndex.trunk_tz_pos]**2) * self.max_standing_reward
+        return np.exp(-(state[ObservationIndex.trunk_tz_pos] - self.desired_height)**2) * self.max_standing_reward
 
     def __reward_minimal_action(self, state, action, next_state):
         # Penalize the agent for moving

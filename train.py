@@ -10,7 +10,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
-from reward import RewardHandler
+from reward import RewardCalculator
 
 
 NUM_PARALLEL_ENVS = 4
@@ -25,7 +25,7 @@ def train(args):
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
     # TODO: What is the reward function used by LocoMujoco?
     #       How does it detect termination?
-    reward_handler = RewardHandler()
+    reward_handler = RewardCalculator()
     env = gym.make(
         "LocoMujoco",
         env_name=args.env,
