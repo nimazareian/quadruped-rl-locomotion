@@ -6,8 +6,6 @@ import numpy as np
 from loco_mujoco import LocoEnv
 
 from stable_baselines3 import PPO
-# from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
