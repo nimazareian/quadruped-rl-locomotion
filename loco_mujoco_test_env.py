@@ -12,9 +12,9 @@ from stable_baselines3.common.callbacks import EvalCallback
 import gymnasium as gym
 from tqdm import tqdm
 
-# ENV_NAME = "UnitreeA1.simple.perfect"
-# TOTAL_TRAINING_TIMESTEPS = 1_000_000
-# EVAL_FREQUENCY = 25_000
+from reward import RewardHandler
+
+
 NUM_PARALLEL_ENVS = 4
 SEED = 0
 
@@ -22,36 +22,23 @@ MODEL_DIR = "models"
 LOG_DIR = "logs"
 
 
-# LocoMujoco reward helper functions: https://loco-mujoco.readthedocs.io/en/latest/source/loco_mujoco.utils.html#module-loco_mujoco.utils.reward
-def my_reward_function(state, action, next_state):
-    # TODO: Print the state, action, and next_state to understand the data structure
-    # Could use VelocityVectorReward: https://github.com/robfiras/loco-mujoco/blob/c4f0e546725d5681a3ec865d3427ce5fdbb7526e/loco_mujoco/environments/quadrupeds/unitreeA1.py#L491
-    # Power = Torque * Angular Velocity -> Minimize power/energy usage (i.e. reward -= power)
-
-    return -np.mean(action)  # here we just return the negative mean of the action
-
 
 def train(args):
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
-    # https://stable-baselines.readthedocs.io/en/master/guide/vec_envs.html
-    # https://stable-baselines3.readthedocs.io/en/master/guide/vec_envs.html#vecenv-api-vs-gym-api
-    # https://pythonprogramming.net/custom-environment-reinforcement-learning-stable-baselines-3-tutorial/?completed=/saving-and-loading-reinforcement-learning-stable-baselines-3-tutorial/
-    # vec_env = make_vec_env(
-    #     "LocoMujoco",
-    #     env_name=ENV_NAME,
-    #     n_envs=NUM_PARALLEL_ENVS,
-    #     seed=SEED,
-    #     vec_env_cls=SubprocVecEnv,
-    # )
-
     # TODO: What is the reward function used by LocoMujoco?
     #       How does it detect termination?
+    reward_handler = RewardHandler()
     env = gym.make(
         "LocoMujoco",
         env_name=args.env,
-        # Can pass a custom reward function using:
-        # reward_type="custom",
-        # reward_params=dict(reward_callback=my_reward_function),
+        # The next 3 arguments can not change for the "perfect" environment
+        action_mode="torque",
+        use_foot_forces=False,
+        default_target_velocity=0.5,
+        setup_random_rot=False,
+        render_mode="human",
+        reward_type="custom",
+        reward_params=dict(reward_callback=lambda s, a, ns: reward_handler.calculate_reward(s, a, ns)),
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -63,7 +50,7 @@ def train(args):
         log_path=LOG_DIR,
         eval_freq=args.eval_frequency,
         deterministic=True,
-        render=True,
+        render=False,
     )
 
     if args.model_path is not None:
@@ -121,7 +108,7 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type= str, default="UnitreeA1.simple.perfect")
-    parser.add_argument("--total_timesteps", type=int, default=100_000)
+    parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--eval_frequency", type=int, default=25_000)
     parser.add_argument("--model_path", type= str, default=None, help="Path to the model to continue training")
     parser.add_argument("--run", type=str, default="train", choices=["train", "test"])

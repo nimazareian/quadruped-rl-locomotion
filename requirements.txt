@@ -1,5 +1,5 @@
 mujoco-python-viewer==0.1.4
-loco-mujoco==0.1 # 0.2 fixes a bug with custom rewards, but it seems like it also introduces new error with rendering...
+loco-mujoco==0.2
 torch==2.2.1
 numpy
 ipykernel
