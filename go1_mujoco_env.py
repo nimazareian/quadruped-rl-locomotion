@@ -163,7 +163,7 @@ class Go1MujocoEnv(MujocoEnv):
         self._feet_air_time[feet_contact] = 0
         self._feet_air_time[~feet_contact] += self.dt
 
-        return np.sum(self._feet_air_time - 0.5)
+        return np.sum(self._feet_air_time - 0.5) # TODO: Does it make sense to subtract 0.5 from all 4?
 
     def velocity_tracking_reward(self, xy_velocity):
         vel_sqr_error = np.sum(np.square(self._desired_velocity - xy_velocity))
