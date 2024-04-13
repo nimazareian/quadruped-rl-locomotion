@@ -9,7 +9,7 @@ import numpy as np
 from path import Path
 from reward import RewardCalculator
 
-
+# WIP - Not yet complete
 class A1MujocoEnv(gym.Env):
     """Custom Environment that follows gym interface."""
 
@@ -31,10 +31,10 @@ class A1MujocoEnv(gym.Env):
         # Define action and observation space
         # They must be gym.spaces objects
         # Example when using discrete actions:
-        self.action_space = spaces.Discrete(N_DISCRETE_ACTIONS)
+        self.action_space = spaces.Discrete(len(self.data.ctrl))
         # Example for using image as input (channel-first; channel-last also works):
-        self.observation_space = spaces.Box(low=0, high=255,
-                                            shape=(N_CHANNELS, HEIGHT, WIDTH), dtype=np.uint8)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf,
+                                            shape=(), dtype=np.float64)
         
         # Extra attributes
         self.last_render_time = -1.0
@@ -72,6 +72,9 @@ class A1MujocoEnv(gym.Env):
         self.last_render_time = -1.0
         self.ep_timestep = 0
         
+        # TODO: Could refer to "from gymnasium.envs.mujoco.mujoco_rendering import MujocoRenderer"
+        # https://github.com/Farama-Foundation/Gymnasium/blob/main/gymnasium/envs/mujoco/mujoco_env.py
+        
         return observation, info
 
     def render(self):
@@ -89,3 +92,11 @@ class A1MujocoEnv(gym.Env):
     
     def __has_fallen(self):
         return False
+    
+    def __mass_center(self):
+        """Find the center of mass of the robot
+        Courtesy of: https://github.com/Farama-Foundation/Gymnasium/blob/94a7909042e846c496bcf54f375a5d0963da2b31/gymnasium/envs/mujoco/humanoid_v4.py#L16
+        """
+        mass = np.expand_dims(self.model.body_mass, axis=1)
+        xpos = self.data.xipos
+        return (np.sum(mass * xpos, axis=0) / np.sum(mass))[0:2].copy()
