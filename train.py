@@ -29,7 +29,10 @@ def train(args):
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"ppo_loco_mujoco_{train_time}"
+    if args.run_name is None:
+       run_name = f"{train_time}"
+    else:
+       run_name = f"{train_time}-{args.run_name}"
 
     eval_callback = EvalCallback(
         vec_env,
@@ -78,8 +81,6 @@ def test(args):
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
 
-            # Render the environment at ~100fps
-            # env.render()
             time.sleep(1.0 / 60.0)
 
             if terminated or truncated:
@@ -90,7 +91,7 @@ def test(args):
                 episode_length += 1
 
     print(
-        f"Total episode reward: {episode_reward}, avg episode length: {episode_length / NUM_EPISODES}"
+        f"Avg episode reward: {episode_reward / NUM_EPISODES}, avg episode length: {episode_length / NUM_EPISODES}"
     )
 
 
@@ -106,6 +107,7 @@ if __name__ == "__main__":
         help="Path to the model to continue training",
     )
     parser.add_argument("--run", type=str, default="train", choices=["train", "test"])
+    parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
 
     os.makedirs(MODEL_DIR, exist_ok=True)

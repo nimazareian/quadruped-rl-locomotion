@@ -36,7 +36,8 @@ class Go1MujocoEnv(MujocoEnv):
             "contact": 0.001,
         }
 
-        self._desired_velocity = np.array([1.5, 0.0])
+        # vx, vy, wz
+        self._desired_velocity = np.array([1.5, 0.0, 0.0])
 
         self._max_xy_vel_tracking_reward = 1
         self._tracking_velocity_sigma = 0.25
@@ -58,11 +59,14 @@ class Go1MujocoEnv(MujocoEnv):
         self._main_body = 1
 
         self._reset_noise_scale = 0.1
+        
+        # Action: 12 torque values
+        self._last_action = np.zeros(12)
 
         MujocoEnv.__init__(
             self,
             model_path=self.model_path.absolute().as_posix(),
-            frame_skip=25,  # Perform an action every 25 frames (=0.05 seconds)
+            frame_skip=2,  # Perform an action every 2 frames (dt(=0.002) * 2 = 0.004 seconds -> 250hz action rate)
             observation_space=None,  # Manually defined afterwards
             default_camera_config=DEFAULT_CAMERA_CONFIG,
             **kwargs,
@@ -75,14 +79,11 @@ class Go1MujocoEnv(MujocoEnv):
                 "rgb_array",
                 "depth_array",
             ],
-            "render_fps": int(np.round(1.0 / self.dt)),
+            "render_fps": 60,
         }
 
-        observation_size = self.data.qpos.size + self.data.qvel.size
-        observation_size += self.data.cfrc_ext[1:].size
-
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(observation_size,), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
         )
 
         # TODO: Consider limiting the force output of the motors (if it's not already clamped): 
@@ -103,6 +104,8 @@ class Go1MujocoEnv(MujocoEnv):
         }
 
     def step(self, action):
+        self._last_action = action
+
         xy_position_before = self.data.body(self._main_body).xpos[:2].copy()
         self.do_simulation(action, self.frame_skip)
         xy_position_after = self.data.body(self._main_body).xpos[:2].copy()
@@ -123,6 +126,7 @@ class Go1MujocoEnv(MujocoEnv):
 
         if self.render_mode == "human":
             self.render()
+
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
         return observation, reward, terminated, False, info
 
@@ -167,7 +171,7 @@ class Go1MujocoEnv(MujocoEnv):
         return np.sum(self._feet_air_time - 0.5) # TODO: Does it make sense to subtract 0.5 from all 4?
 
     def velocity_tracking_reward(self, xy_velocity):
-        vel_sqr_error = np.sum(np.square(self._desired_velocity - xy_velocity))
+        vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
         return (
             np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
             * self._max_xy_vel_tracking_reward
@@ -197,20 +201,21 @@ class Go1MujocoEnv(MujocoEnv):
         #  - Measure step duration using contact forces
         #  - Give reward for the orientation of the robot
         #  - RCL GPU paper gives a reward and a penalty for lin + ang velocity tracking!!
-        vel_tracking_reward = self.velocity_tracking_reward(xy_velocity)
-        healthy_reward = self.healthy_reward
-        feet_air_time_reward = 0 # TODO: Tune self.feet_air_time_reward
+        vel_tracking_reward = self.velocity_tracking_reward(xy_velocity) * self.reward_weights["vel_tracking"]
+        healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
+        feet_air_time_reward = 0 # TODO: Tune self.feet_air_time_reward * self.reward_weights["feet_airtime"]
         rewards = (
-            vel_tracking_reward * self.reward_weights["vel_tracking"]
-            + healthy_reward * self.reward_weights["healthy"]
-            + feet_air_time_reward * self.reward_weights["feet_airtime"]
+            vel_tracking_reward
+            + healthy_reward
+            + feet_air_time_reward
         )
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
         contact_cost = self.contact_cost * self.cost_weights["contact"]
         costs = (ctrl_cost + contact_cost)
 
-        reward = self.dt * (rewards - costs)
+        # self.dt coefficient does not seem to have an effect on the result
+        reward = healthy_reward # TODO: self.dt * (rewards - costs) - self.dt might make the gradient small and learning slow
 
         # TODO: Reward info isnt accurate as it doesn't include the weights
         reward_info = {
@@ -223,11 +228,21 @@ class Go1MujocoEnv(MujocoEnv):
         return reward, reward_info
 
     def _get_obs(self):
-        position = self.data.qpos.flatten()
-        velocity = self.data.qvel.flatten()
-        contact_force = self.contact_forces[1:].flatten()
+        # The first three indices are the global x and y positions of the robot
+        # The second four are the quaternion representing the orientation of the robot
+        # The remaining 12 values are the joint positions
+        position = self.data.qpos[7:].flatten()
 
-        return np.concatenate((position, velocity, contact_force))
+        # The first three values are the global linear velocity of the robot
+        # The second three are the angular velocity of the robot
+        # The remaining 12 values are the joint velocities
+        velocity = self.data.qvel.flatten()
+        
+        desired_vel = self._desired_velocity
+        last_action = self._last_action
+        # contact_force = self.contact_forces[1:].flatten()
+
+        return np.concatenate((position, velocity, desired_vel, last_action))
 
     def reset_model(self):
         noise_low = -self._reset_noise_scale
