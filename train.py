@@ -78,7 +78,7 @@ def test(args):
 
         while True:
             action, _ = model.predict(obs, deterministic=True)
-            # print(f"{action=}")
+            print(f"{action=}")
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
 

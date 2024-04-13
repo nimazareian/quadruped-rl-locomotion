@@ -37,7 +37,7 @@ class Go1MujocoEnv(MujocoEnv):
         }
 
         # vx, vy, wz
-        self._desired_velocity = np.array([1.5, 0.0, 0.0])
+        self._desired_velocity = np.array([1.0, 0.0, 0.0])
 
         self._max_xy_vel_tracking_reward = 1
         self._tracking_velocity_sigma = 0.25
@@ -216,7 +216,7 @@ class Go1MujocoEnv(MujocoEnv):
         costs = (ctrl_cost + contact_cost)
 
         # self.dt coefficient does not seem to have an effect on the result
-        reward = healthy_reward # TODO: self.dt * (rewards - costs) - self.dt might make the gradient small and learning slow
+        reward = rewards # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
 
         # TODO: Reward info isnt accurate as it doesn't include the weights
         reward_info = {
