@@ -80,7 +80,7 @@ def test(args):
 
             # Render the environment at ~100fps
             # env.render()
-            time.sleep(1.0 / 10.0)
+            time.sleep(1.0 / 1.0)
 
             if terminated or truncated:
                 extra -= 1
