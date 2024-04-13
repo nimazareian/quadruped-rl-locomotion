@@ -3,38 +3,36 @@ import os
 import time
 
 import numpy as np
-from loco_mujoco import LocoEnv
 
 import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.env_util import make_vec_env
 from go1_mujoco_env import Go1MujocoEnv
 from tqdm import tqdm
 
-from reward import RewardCalculator
 
-
-NUM_PARALLEL_ENVS = 4
+NUM_LOGICAL_CPU_CORES = 12
 SEED = 0
 
 MODEL_DIR = "models"
 LOG_DIR = "logs"
 
 
-def make_env(render_mode=None):
-    return Go1MujocoEnv(
-        render_mode=render_mode,
-    )
-
 def train(args):
-    # TODO: Vectorize the envrionment so it can train in parallel multiple instances
-    env = make_env()
+    vec_env = make_vec_env(
+        Go1MujocoEnv,
+        n_envs=NUM_LOGICAL_CPU_CORES,
+        seed=SEED,
+        vec_env_cls=SubprocVecEnv,
+    )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
     run_name = f"ppo_loco_mujoco_{train_time}"
 
     eval_callback = EvalCallback(
-        env,
+        vec_env,
         best_model_save_path=f"{MODEL_DIR}/{run_name}",
         log_path=LOG_DIR,
         eval_freq=args.eval_frequency,
@@ -44,10 +42,10 @@ def train(args):
 
     if args.model_path is not None:
         model = PPO.load(
-            path=args.model_path, env=env, verbose=1, tensorboard_log=LOG_DIR
+            path=args.model_path, env=vec_env, verbose=1, tensorboard_log=LOG_DIR
         )
     else:
-        model = PPO("MlpPolicy", env, verbose=1, tensorboard_log=LOG_DIR)
+        model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
 
     model.learn(
         total_timesteps=args.total_timesteps,
@@ -59,7 +57,9 @@ def train(args):
 
 
 def test(args):
-    env = make_env("human")
+    env = Go1MujocoEnv(
+        render_mode="human",
+    )
 
     model = PPO.load(path=args.model_path, env=env, verbose=1)
 
@@ -80,7 +80,7 @@ def test(args):
 
             # Render the environment at ~100fps
             # env.render()
-            time.sleep(1.0 / 1.0)
+            time.sleep(1.0 / 60.0)
 
             if terminated or truncated:
                 extra -= 1
@@ -96,10 +96,15 @@ def test(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type= str, default="UnitreeA1.simple.perfect")
+    parser.add_argument("--env", type=str, default="UnitreeA1.simple.perfect")
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
-    parser.add_argument("--eval_frequency", type=int, default=25_000)
-    parser.add_argument("--model_path", type= str, default=None, help="Path to the model to continue training")
+    parser.add_argument("--eval_frequency", type=int, default=10_000)
+    parser.add_argument(
+        "--model_path",
+        type=str,
+        default=None,
+        help="Path to the model to continue training",
+    )
     parser.add_argument("--run", type=str, default="train", choices=["train", "test"])
     args = parser.parse_args()
 

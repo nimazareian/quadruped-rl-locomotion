@@ -1,14 +1,11 @@
-# TODO: Add custom Tensorboard calls for individual reward functions to get a better
-#   sense of the contribution of each reward function
-
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.mujoco import MujocoEnv
+
 import mujoco
-import mujoco_viewer
+
 import numpy as np
 from pathlib import Path
-from reward import RewardCalculator
 
 
 DEFAULT_CAMERA_CONFIG = {
@@ -175,6 +172,9 @@ class Go1MujocoEnv(MujocoEnv):
             np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
             * self._max_xy_vel_tracking_reward
         )
+        
+    def vertical_velocity_cost(self, z_velocity):
+        return z_velocity ** 2
 
     @property
     def is_healthy(self):
@@ -191,15 +191,16 @@ class Go1MujocoEnv(MujocoEnv):
         return is_healthy
 
     def _get_rew(self, xy_velocity, action):
+        # TODO: Add custom Tensorboard calls for individual reward functions to get a better
+        #   sense of the contribution of each reward function
         # TODO:
         #  - Measure step duration using contact forces
         #  - Give reward for the orientation of the robot
         #  - RCL GPU paper gives a reward and a penalty for lin + ang velocity tracking!!
-        #  - Model should be using motors/torque
         vel_tracking_reward = self.velocity_tracking_reward(xy_velocity)
         healthy_reward = self.healthy_reward
-        feet_air_time_reward = self.feet_air_time_reward
-        rewards = self.dt * (
+        feet_air_time_reward = 0 # TODO: Tune self.feet_air_time_reward
+        rewards = (
             vel_tracking_reward * self.reward_weights["vel_tracking"]
             + healthy_reward * self.reward_weights["healthy"]
             + feet_air_time_reward * self.reward_weights["feet_airtime"]
@@ -207,9 +208,9 @@ class Go1MujocoEnv(MujocoEnv):
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
         contact_cost = self.contact_cost * self.cost_weights["contact"]
-        costs = ctrl_cost + contact_cost
+        costs = (ctrl_cost + contact_cost)
 
-        reward = rewards - costs
+        reward = self.dt * (rewards - costs)
 
         # TODO: Reward info isnt accurate as it doesn't include the weights
         reward_info = {
