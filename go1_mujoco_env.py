@@ -26,7 +26,7 @@ class Go1MujocoEnv(MujocoEnv):
             "depth_array",
         ],
     }
-    model_path = Path("./unitree_go1/scene.xml")
+    model_path = Path("./unitree_go1/scene_torque.xml")
 
     def __init__(self, **kwargs):
         self.reward_weights = {
@@ -88,6 +88,10 @@ class Go1MujocoEnv(MujocoEnv):
             low=-np.inf, high=np.inf, shape=(observation_size,), dtype=np.float64
         )
 
+        # TODO: Consider limiting the force output of the motors (if it's not already clamped): 
+        # https://mujoco.readthedocs.io/en/stable/modeling.html#force-limits
+        # In the updated go1_torque.xml, the motors are already clamped to -1.0 and 1.0
+        
         # Feet site name to index mapping
         # https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-site
         feet_site = [
