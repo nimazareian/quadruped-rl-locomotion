@@ -5,9 +5,10 @@ import time
 import numpy as np
 from loco_mujoco import LocoEnv
 
+import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
-import gymnasium as gym
+from go1_mujoco_env import Go1MujocoEnv
 from tqdm import tqdm
 
 from reward import RewardCalculator
@@ -20,24 +21,14 @@ MODEL_DIR = "models"
 LOG_DIR = "logs"
 
 
+def make_env(render_mode=None):
+    return Go1MujocoEnv(
+        render_mode=render_mode,
+    )
 
 def train(args):
     # TODO: Vectorize the envrionment so it can train in parallel multiple instances
-    # TODO: What is the reward function used by LocoMujoco?
-    #       How does it detect termination?
-    reward_handler = RewardCalculator()
-    env = gym.make(
-        "LocoMujoco",
-        env_name=args.env,
-        # The next 3 arguments can not change for the "perfect" environment
-        action_mode="torque",
-        use_foot_forces=False,
-        default_target_velocity=0.5,
-        setup_random_rot=False,
-        render_mode="human",
-        reward_type="custom",
-        reward_params=dict(reward_callback=lambda s, a, ns: reward_handler.calculate_reward(s, a, ns)),
-    )
+    env = make_env()
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
     run_name = f"ppo_loco_mujoco_{train_time}"
@@ -68,7 +59,7 @@ def train(args):
 
 
 def test(args):
-    env = gym.make("LocoMujoco", env_name=args.env, render_mode="human")
+    env = make_env("human")
 
     model = PPO.load(path=args.model_path, env=env, verbose=1)
 
@@ -88,8 +79,8 @@ def test(args):
             episode_reward += reward
 
             # Render the environment at ~100fps
-            env.render()
-            time.sleep(0.01)
+            # env.render()
+            time.sleep(1.0 / 10.0)
 
             if terminated or truncated:
                 extra -= 1

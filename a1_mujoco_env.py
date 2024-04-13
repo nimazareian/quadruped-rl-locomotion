@@ -6,7 +6,7 @@ from gymnasium import spaces
 import mujoco
 import mujoco_viewer
 import numpy as np
-from path import Path
+from pathlib import Path
 from reward import RewardCalculator
 
 # WIP - Not yet complete
