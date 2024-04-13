@@ -85,10 +85,11 @@ class Go1MujocoEnv(MujocoEnv):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
         )
+        
+        print(f"{self.action_space=}")
 
-        # TODO: Consider limiting the force output of the motors (if it's not already clamped): 
-        # https://mujoco.readthedocs.io/en/stable/modeling.html#force-limits
-        # In the updated go1_torque.xml, the motors are already clamped to -1.0 and 1.0
+        # In the updated go1_torque.xml, the motors control is clamped to -1.0 and 1.0
+        # But geared up to be equal to the torque of the actual Unitree Go1 motors
         
         # Feet site name to index mapping
         # https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-site
