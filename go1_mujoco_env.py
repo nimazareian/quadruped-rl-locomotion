@@ -23,7 +23,7 @@ class Go1MujocoEnv(MujocoEnv):
             "depth_array",
         ],
     }
-    model_path = Path("./unitree_go1/scene_torque.xml")
+    model_path = Path("./unitree_go1/scene_position.xml")
 
     def __init__(self, **kwargs):
         self.reward_weights = {
@@ -42,9 +42,9 @@ class Go1MujocoEnv(MujocoEnv):
         self._step = 0
 
         # vx (m/s), vy (m/s), wz (rad/s)
-        self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
-        self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
-        self._desired_velocity = self._sample_desired_vel() # np.array([1.0, 0.0, 0.0])
+        self._desired_velocity_min = np.array([-0.5, 0, 0.0]) # y and wz -0.6, 0.6
+        self._desired_velocity_max = np.array([1.5, 0, 0.0])
+        self._desired_velocity = self._sample_desired_vel()
 
         self._tracking_velocity_sigma = 0.25
 
@@ -70,7 +70,7 @@ class Go1MujocoEnv(MujocoEnv):
         MujocoEnv.__init__(
             self,
             model_path=self.model_path.absolute().as_posix(),
-            frame_skip=2,  # Perform an action every 2 frames (dt(=0.002) * 2 = 0.004 seconds -> 250hz action rate)
+            frame_skip=10,  # Perform an action every 2 frames (dt(=0.002) * 2 = 0.004 seconds -> 250hz action rate)
             observation_space=None,  # Manually defined afterwards
             default_camera_config=DEFAULT_CAMERA_CONFIG,
             **kwargs,
@@ -105,7 +105,7 @@ class Go1MujocoEnv(MujocoEnv):
             "RR",
             "RL",
         ]
-        self.feet_site_name_to_id = {
+        self._feet_site_name_to_id = {
             f: mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE.value, f)
             for f in feet_site
         }
@@ -174,6 +174,10 @@ class Go1MujocoEnv(MujocoEnv):
 
         # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
         self._feet_air_time *= ~contact_filter
+        
+        # TODO: Could penalize for foot sliding like Colab
+        # contacting_feet = self.data.site_xvel[list(self._feet_site_name_to_id.values()), 2] * curr_contact
+        # print(f"{contacting_feet=}\n")
 
         return air_time_reward
 
@@ -269,6 +273,8 @@ class Go1MujocoEnv(MujocoEnv):
             "reward_ctrl": -ctrl_cost,
             "reward_survive": healthy_reward,
         }
+        
+        # print(f"{self.data.qfrc_actuator=}")
 
         return reward, reward_info
 
@@ -325,6 +331,8 @@ class Go1MujocoEnv(MujocoEnv):
         }
 
     def _sample_desired_vel(self):
-        return np.random.default_rng().uniform(
+        desired_vel = np.random.default_rng().uniform(
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
+        # print(f"Desired velocity: {desired_vel}")
+        return desired_vel
