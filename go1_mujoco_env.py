@@ -54,9 +54,10 @@ class Go1MujocoEnv(MujocoEnv):
         self._contact_force_range = (-1.0, 1.0)
 
         # When idle, feet sits at 0.0053, however, we increase this constant to stop the robot from using fast oscillating contact to move forward
-        self._feet_contacting_ground_threshold = 0.025
+        # self._feet_contacting_ground_threshold = 0.025
         self._feet_air_time = np.zeros(4)
-        self._has_feet_contacted_ground = np.zeros(4)
+        # self._has_feet_contacted_ground = np.zeros(4)
+        self._last_contacts = np.zeros(4)
         self._cfrc_ext_feet_indices = [4, 7, 10, 13] # 4:FR, 7:FL, 10:RR, 13:RL
 
         self._main_body = 1
@@ -118,6 +119,7 @@ class Go1MujocoEnv(MujocoEnv):
 
         observation = self._get_obs()
         reward, reward_info = self._get_rew(xy_velocity, action)
+        # TODO: Consider terminating if knees touch the ground
         terminated = not self.is_healthy
         info = {
             "x_position": self.data.qpos[0],
@@ -166,19 +168,21 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def feet_air_time_reward(self):
-        feet_heights = self.data.site_xpos[list(self.feet_site_name_to_id.values()), 2]
-        feet_contact = feet_heights < self._feet_contacting_ground_threshold
-
-        self._has_feet_contacted_ground[feet_contact] = 1
-
-        self._feet_air_time[feet_contact] = 0
-        self._feet_air_time[~feet_contact] += self.dt
+        feet_contact_forces = self.data.cfrc_ext[self._cfrc_ext_feet_indices]
+        feet_contact_force_mag = np.linalg.norm(feet_contact_forces, axis=1)
+        curr_contact = feet_contact_force_mag > 0.1
+        contact_filter = np.logical_or(curr_contact, self._last_contacts)
+        self._last_contacts = curr_contact
         
-        # TODO: Only start reward after the first contact with the ground
-        #  But feet sometimes starts on the ground due to the noisy initial position
+        first_contact = (self._feet_air_time > 0.0) * contact_filter
+        self._feet_air_time += self.dt
         
-        # Only receive a reward if the feet are in the air for more than 0.3 seconds
-        return max(0.0, np.sum((self._feet_air_time - 0.3) * self._has_feet_contacted_ground))
+        air_time_reward = np.sum((self._feet_air_time - 0.5) * first_contact)
+        # TODO: Multiply by if the desired velocity is 0
+        
+        self._feet_air_time *= ~contact_filter
+        
+        return air_time_reward
 
     def velocity_tracking_reward(self, xy_velocity):
         vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
@@ -208,7 +212,8 @@ class Go1MujocoEnv(MujocoEnv):
         # TODO: Add custom Tensorboard calls for individual reward functions to get a better
         #   sense of the contribution of each reward function
         # TODO:
-        #  - Measure step duration using contact forces
+        #  - Give reward/cost based on the height of the robot being at (0.25?!) _reward_base_height
+        
         #  - Give reward for the orientation of the robot
         #  - RCL GPU paper gives a reward and a penalty for lin + ang velocity tracking!!
         vel_tracking_reward = (
@@ -220,14 +225,14 @@ class Go1MujocoEnv(MujocoEnv):
             self.feet_air_time_reward * self.reward_weights["feet_airtime"]
         )
         rewards = vel_tracking_reward + healthy_reward + feet_air_time_reward
-        # print(f"{vel_tracking_reward=} {healthy_reward=} {feet_air_time_reward=}")
+        print(f"{vel_tracking_reward=} {healthy_reward=} {feet_air_time_reward=}")
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
         contact_cost = self.contact_cost * self.cost_weights["contact"]
         costs = ctrl_cost + contact_cost
 
         # self.dt coefficient does not seem to have an effect on the result
-        reward = rewards  # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
+        reward = max(0.0, rewards)  # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
 
         reward_info = {
             "vel_tracking_reward": vel_tracking_reward,
