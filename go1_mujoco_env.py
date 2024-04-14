@@ -28,7 +28,7 @@ class Go1MujocoEnv(MujocoEnv):
     def __init__(self, **kwargs):
         self.reward_weights = {
             "vel_tracking": 2.0,
-            "healthy": 0.5,
+            "healthy": 0.05,
             "feet_airtime": 2.0,
         }
         self.cost_weights = {
@@ -36,8 +36,10 @@ class Go1MujocoEnv(MujocoEnv):
             "contact": 0.001,
         }
 
-        # vx, vy, wz
+        # vx (m/s), vy (m/s), wz (rad/s)
         self._desired_velocity = np.array([1.0, 0.0, 0.0])
+        self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
+        self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
 
         self._max_xy_vel_tracking_reward = 1
         self._tracking_velocity_sigma = 0.25
@@ -59,7 +61,7 @@ class Go1MujocoEnv(MujocoEnv):
         self._main_body = 1
 
         self._reset_noise_scale = 0.1
-        
+
         # Action: 12 torque values
         self._last_action = np.zeros(12)
 
@@ -85,12 +87,12 @@ class Go1MujocoEnv(MujocoEnv):
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
         )
-        
+
         print(f"{self.action_space=}")
 
         # In the updated go1_torque.xml, the motors control is clamped to -1.0 and 1.0
         # But geared up to be equal to the torque of the actual Unitree Go1 motors
-        
+
         # Feet site name to index mapping
         # https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-site
         feet_site = [
@@ -169,7 +171,9 @@ class Go1MujocoEnv(MujocoEnv):
         self._feet_air_time[feet_contact] = 0
         self._feet_air_time[~feet_contact] += self.dt
 
-        return np.sum(self._feet_air_time - 0.5) # TODO: Does it make sense to subtract 0.5 from all 4?
+        return np.sum(
+            self._feet_air_time - 0.5
+        )  # TODO: Does it make sense to subtract 0.5 from all 4?
 
     def velocity_tracking_reward(self, xy_velocity):
         vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
@@ -177,9 +181,9 @@ class Go1MujocoEnv(MujocoEnv):
             np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
             * self._max_xy_vel_tracking_reward
         )
-        
+
     def vertical_velocity_cost(self, z_velocity):
-        return z_velocity ** 2
+        return z_velocity**2
 
     @property
     def is_healthy(self):
@@ -202,21 +206,20 @@ class Go1MujocoEnv(MujocoEnv):
         #  - Measure step duration using contact forces
         #  - Give reward for the orientation of the robot
         #  - RCL GPU paper gives a reward and a penalty for lin + ang velocity tracking!!
-        vel_tracking_reward = self.velocity_tracking_reward(xy_velocity) * self.reward_weights["vel_tracking"]
-        healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
-        feet_air_time_reward = 0 # TODO: Tune self.feet_air_time_reward * self.reward_weights["feet_airtime"]
-        rewards = (
-            vel_tracking_reward
-            + healthy_reward
-            + feet_air_time_reward
+        vel_tracking_reward = (
+            self.velocity_tracking_reward(xy_velocity)
+            * self.reward_weights["vel_tracking"]
         )
+        healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
+        feet_air_time_reward = 0  # TODO: Tune self.feet_air_time_reward * self.reward_weights["feet_airtime"]
+        rewards = vel_tracking_reward + healthy_reward + feet_air_time_reward
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
         contact_cost = self.contact_cost * self.cost_weights["contact"]
-        costs = (ctrl_cost + contact_cost)
+        costs = ctrl_cost + contact_cost
 
         # self.dt coefficient does not seem to have an effect on the result
-        reward = rewards # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
+        reward = rewards  # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
 
         # TODO: Reward info isnt accurate as it doesn't include the weights
         reward_info = {
@@ -238,7 +241,7 @@ class Go1MujocoEnv(MujocoEnv):
         # The second three are the angular velocity of the robot
         # The remaining 12 values are the joint velocities
         velocity = self.data.qvel.flatten()
-        
+
         desired_vel = self._desired_velocity
         last_action = self._last_action
         # contact_force = self.contact_forces[1:].flatten()
@@ -268,3 +271,8 @@ class Go1MujocoEnv(MujocoEnv):
             "y_position": self.data.qpos[1],
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
         }
+
+    def _sample_desired_vel(self):
+        return np.random.default_rng().uniform(
+            low=self._desired_velocity_min, high=self._desired_velocity_max
+        )

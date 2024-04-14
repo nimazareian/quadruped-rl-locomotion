@@ -78,11 +78,8 @@ def test(args):
 
         while True:
             action, _ = model.predict(obs, deterministic=True)
-            print(f"{action=}")
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
-
-            # time.sleep(1.0 / 60.0)
 
             if terminated or truncated:
                 extra -= 1
