@@ -27,24 +27,26 @@ class Go1MujocoEnv(MujocoEnv):
 
     def __init__(self, **kwargs):
         self.reward_weights = {
-            "vel_tracking": 2.0,
-            "healthy": 0.05,
-            "feet_airtime": 2.0,
+            "linear_vel_tracking": 1.0,
+            "angular_vel_tracking": 0.5,
+            "healthy": 0.0, # was 0.05
+            "feet_airtime": 1.0,
         }
         self.cost_weights = {
-            "action_rate": 0.25,
-            "contact": 0.001,
+            "torque": 0.0002,
+            "vertical_vel": 2,
+            "xy_angular_vel": 0.05,
+            "action_rate": 0.01,
         }
+        
+        self._step = 0
 
         # vx (m/s), vy (m/s), wz (rad/s)
-        self._desired_velocity = np.array([1.0, 0.0, 0.0])
         self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
         self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
+        self._desired_velocity = self._sample_desired_vel() # np.array([1.0, 0.0, 0.0])
 
-        self._max_xy_vel_tracking_reward = 1
         self._tracking_velocity_sigma = 0.25
-        self._ctrl_cost_weight = 0.05
-        self._contact_cost_weight = 5e-4
 
         self._healthy_reward = 1
         self._healthy_z_range = (0.195, 0.75)
@@ -58,9 +60,7 @@ class Go1MujocoEnv(MujocoEnv):
         self._feet_air_time = np.zeros(4)
         # self._has_feet_contacted_ground = np.zeros(4)
         self._last_contacts = np.zeros(4)
-        self._cfrc_ext_feet_indices = [4, 7, 10, 13] # 4:FR, 7:FL, 10:RR, 13:RL
-
-        self._main_body = 1
+        self._cfrc_ext_feet_indices = [4, 7, 10, 13]  # 4:FR, 7:FL, 10:RR, 13:RL
 
         self._reset_noise_scale = 0.1
 
@@ -85,6 +85,8 @@ class Go1MujocoEnv(MujocoEnv):
             ],
             "render_fps": 60,
         }
+        self._last_render_time = -1.0
+        self._max_episode_time_sec = 15.0
 
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
@@ -108,91 +110,99 @@ class Go1MujocoEnv(MujocoEnv):
             for f in feet_site
         }
 
+        self._main_body_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY.value, "trunk"
+        )
+
     def step(self, action):
-        self._last_action = action
-
-        xy_position_before = self.data.body(self._main_body).xpos[:2].copy()
+        self._step += 1
         self.do_simulation(action, self.frame_skip)
-        xy_position_after = self.data.body(self._main_body).xpos[:2].copy()
-
-        xy_velocity = (xy_position_after - xy_position_before) / self.dt
 
         observation = self._get_obs()
-        reward, reward_info = self._get_rew(xy_velocity, action)
+        reward, reward_info = self._get_rew(action)
         # TODO: Consider terminating if knees touch the ground
         terminated = not self.is_healthy
         info = {
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],
             "distance_from_origin": np.linalg.norm(self.data.qpos[0:2], ord=2),
-            "x_velocity": xy_velocity[0],
-            "y_velocity": xy_velocity[1],
             **reward_info,
         }
 
-        if self.render_mode == "human":
+        if self.render_mode == "human" and (self.data.time - self._last_render_time) > (
+            1.0 / self.metadata["render_fps"]
+        ):
             self.render()
+            self._last_render_time = self.data.time
+            # print(f"{self.data.time=}")
 
+        self._last_action = action
         # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
-        return observation, reward, terminated, False, info
+        truncated = self._step >= (self._max_episode_time_sec / self.dt)
+        return observation, reward, terminated, truncated, info
 
-    def close(self):
-        pass
+    @property
+    def feet_contact_forces(self):
+        feet_contact_forces = self.data.cfrc_ext[self._cfrc_ext_feet_indices]
+        return np.linalg.norm(feet_contact_forces, axis=1)
+
+    ######### Reward functions #########
+    def linear_velocity_tracking_reward(self, xy_velocity):
+        vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
+        return np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
+
+    def angular_velocity_tracking_reward(self, wz_velocity):
+        vel_sqr_error = (self._desired_velocity[2] - wz_velocity) ** 2
+        return np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
+
+    @property
+    def feet_air_time_reward(self):
+        """Award strides depending on their duration only when the feet makes contact with the ground"""
+        feet_contact_force_mag = self.feet_contact_forces
+        curr_contact = feet_contact_force_mag > 0.1
+        contact_filter = np.logical_or(curr_contact, self._last_contacts)
+        self._last_contacts = curr_contact
+
+        # if feet_air_time is > 0 (feet was in the air) and contact_filter detects a contact with the ground
+        # then it is the first contact of this stride
+        first_contact = (self._feet_air_time > 0.0) * contact_filter
+        self._feet_air_time += self.dt
+
+        # Award the feets that have just finished their stride (first step with contact)
+        air_time_reward = np.sum((self._feet_air_time - 0.5) * first_contact)
+        # TODO: Multiply by if the desired velocity is 0
+
+        # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
+        self._feet_air_time *= ~contact_filter
+
+        return air_time_reward
 
     @property
     def healthy_reward(self):
         return self.is_healthy * self._healthy_reward
 
-    def control_cost(self, action):
-        control_cost = self._ctrl_cost_weight * np.sum(np.square(action))
-        return control_cost
-
-    @property
-    def contact_forces(self):
-        # cfrc_ext forces are stored in the following indices
-        # 4:frontright
-        # 7:frontleft
-        # 10:backright
-        # 13:backleft
-        raw_contact_forces = self.data.cfrc_ext
-        min_value, max_value = self._contact_force_range
-        contact_forces = np.clip(raw_contact_forces, min_value, max_value)
-        return contact_forces
-
-    @property
-    def contact_cost(self):
-        contact_cost = self._contact_cost_weight * np.sum(
-            np.square(self.contact_forces)
+    @property  # TODO: Not used
+    def feet_contact_forces_cost(self):
+        return np.sum(
+            (self.feet_contact_forces - self._max_contact_force).clip(min=0.0)
         )
-        return contact_cost
 
-    @property
-    def feet_air_time_reward(self):
-        feet_contact_forces = self.data.cfrc_ext[self._cfrc_ext_feet_indices]
-        feet_contact_force_mag = np.linalg.norm(feet_contact_forces, axis=1)
-        curr_contact = feet_contact_force_mag > 0.1
-        contact_filter = np.logical_or(curr_contact, self._last_contacts)
-        self._last_contacts = curr_contact
-        
-        first_contact = (self._feet_air_time > 0.0) * contact_filter
-        self._feet_air_time += self.dt
-        
-        air_time_reward = np.sum((self._feet_air_time - 0.5) * first_contact)
-        # TODO: Multiply by if the desired velocity is 0
-        
-        self._feet_air_time *= ~contact_filter
-        
-        return air_time_reward
+    @property  # TODO: Not actually used by RSL
+    def non_flat_base_cost(self):
+        # Penalize the robot for not being flat on the ground
+        return np.sum(np.square(self.data.qpos[4:6]))
 
-    def velocity_tracking_reward(self, xy_velocity):
-        vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
-        return (
-            np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
-            * self._max_xy_vel_tracking_reward
-        )
+    def torque_cost(self, action):
+        return np.sum(np.square(action))
+
+    def action_rate_cost(self, action):
+        return np.sum(np.square(self._last_action - action))
 
     def vertical_velocity_cost(self, z_velocity):
         return z_velocity**2
+
+    def xy_angular_velocity_cost(self, wxy_velocity):
+        return np.sum(np.square(wxy_velocity))
 
     @property
     def is_healthy(self):
@@ -208,36 +218,55 @@ class Go1MujocoEnv(MujocoEnv):
 
         return is_healthy
 
-    def _get_rew(self, xy_velocity, action):
+    def _get_rew(self, action):
         # TODO: Add custom Tensorboard calls for individual reward functions to get a better
         #   sense of the contribution of each reward function
         # TODO:
-        #  - Give reward/cost based on the height of the robot being at (0.25?!) _reward_base_height
-        
-        #  - Give reward for the orientation of the robot
-        #  - RCL GPU paper gives a reward and a penalty for lin + ang velocity tracking!!
-        vel_tracking_reward = (
-            self.velocity_tracking_reward(xy_velocity)
-            * self.reward_weights["vel_tracking"]
+        #  - Cost for thigh or calf contact with the ground
+        #  - Cost for reaching limit of joint angles and motor velocities
+        #  - Give reward/cost based on the height of the robot being at (0.25?!) NOT ACTUALLY USED BY RSL!!!
+        linear_vel_tracking_reward = (
+            self.linear_velocity_tracking_reward(self.data.qvel[:2])
+            * self.reward_weights["linear_vel_tracking"]
+        )
+        angular_vel_tracking_reward = (
+            self.angular_velocity_tracking_reward(self.data.qvel[5])
+            * self.reward_weights["angular_vel_tracking"]
         )
         healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
         feet_air_time_reward = (
             self.feet_air_time_reward * self.reward_weights["feet_airtime"]
         )
-        rewards = vel_tracking_reward + healthy_reward + feet_air_time_reward
-        print(f"{vel_tracking_reward=} {healthy_reward=} {feet_air_time_reward=}")
+        rewards = (
+            linear_vel_tracking_reward
+            + angular_vel_tracking_reward
+            + healthy_reward
+            + feet_air_time_reward
+        )
 
-        ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
-        contact_cost = self.contact_cost * self.cost_weights["contact"]
-        costs = ctrl_cost + contact_cost
+        ctrl_cost = self.torque_cost(action) * self.cost_weights["torque"]
+        action_rate_cost = (
+            self.action_rate_cost(action) * self.cost_weights["action_rate"]
+        )
+        vertical_vel_cost = (
+            self.vertical_velocity_cost(self.data.qvel[2])
+            * self.cost_weights["vertical_vel"]
+        )
+        xy_angular_vel_cost = (
+            self.xy_angular_velocity_cost(self.data.qvel[3:5])
+            * self.cost_weights["xy_angular_vel"]
+        )
+        costs = ctrl_cost + action_rate_cost + vertical_vel_cost + xy_angular_vel_cost
 
         # self.dt coefficient does not seem to have an effect on the result
-        reward = max(0.0, rewards)  # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
+        reward = max(0.0, rewards - costs)
+
+        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {feet_air_time_reward=:.3f}")
+        # print(f"{self.feet_contact_forces=}")
 
         reward_info = {
-            "vel_tracking_reward": vel_tracking_reward,
+            "linear_vel_tracking_reward": linear_vel_tracking_reward,
             "reward_ctrl": -ctrl_cost,
-            "reward_contact": -contact_cost,
             "reward_survive": healthy_reward,
         }
 
@@ -256,11 +285,14 @@ class Go1MujocoEnv(MujocoEnv):
 
         desired_vel = self._desired_velocity
         last_action = self._last_action
-        # contact_force = self.contact_forces[1:].flatten()
 
         return np.concatenate((position, velocity, desired_vel, last_action))
 
     def reset_model(self):
+        # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
+        # mujoco.mj_resetData(self.model, self.data)
+
+        # Reset the position and velocity of the robot
         noise_low = -self._reset_noise_scale
         noise_high = self._reset_noise_scale
 
@@ -272,6 +304,14 @@ class Go1MujocoEnv(MujocoEnv):
             + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv)
         )
         self.set_state(qpos, qvel)
+        
+        # Reset the variables and sample a new desired velocity
+        self._desired_velocity = self._sample_desired_vel()
+        self._step = 0
+        self._last_action = np.zeros(12)
+        self._feet_air_time = np.zeros(4)
+        self._last_contacts = np.zeros(4)
+        self._last_render_time = -1.0
 
         observation = self._get_obs()
 

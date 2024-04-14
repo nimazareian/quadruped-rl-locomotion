@@ -75,17 +75,18 @@ def test(args):
         obs, _ = env.reset()
         env.render()
         extra = NUM_EXTRA_STEPS_AFTER_TERMINATION
-
+        ep_len = 0
         while True:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             episode_reward += reward
             
             # time.sleep(0.1)
-
+            ep_len += 1
             if terminated or truncated:
                 extra -= 1
                 if extra <= 0:
+                    print(f"{ep_len=}")
                     break
             else:
                 episode_length += 1
