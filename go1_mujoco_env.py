@@ -56,6 +56,8 @@ class Go1MujocoEnv(MujocoEnv):
         # When idle, feet sits at 0.0053, however, we increase this constant to stop the robot from using fast oscillating contact to move forward
         self._feet_contacting_ground_threshold = 0.025
         self._feet_air_time = np.zeros(4)
+        self._has_feet_contacted_ground = np.zeros(4)
+        self._cfrc_ext_feet_indices = [4, 7, 10, 13] # 4:FR, 7:FL, 10:RR, 13:RL
 
         self._main_body = 1
 
@@ -146,7 +148,7 @@ class Go1MujocoEnv(MujocoEnv):
     @property
     def contact_forces(self):
         # cfrc_ext forces are stored in the following indices
-        # 4:fromright
+        # 4:frontright
         # 7:frontleft
         # 10:backright
         # 13:backleft
@@ -167,12 +169,16 @@ class Go1MujocoEnv(MujocoEnv):
         feet_heights = self.data.site_xpos[list(self.feet_site_name_to_id.values()), 2]
         feet_contact = feet_heights < self._feet_contacting_ground_threshold
 
+        self._has_feet_contacted_ground[feet_contact] = 1
+
         self._feet_air_time[feet_contact] = 0
         self._feet_air_time[~feet_contact] += self.dt
-
-        return np.sum(
-            self._feet_air_time - 0.5
-        )
+        
+        # TODO: Only start reward after the first contact with the ground
+        #  But feet sometimes starts on the ground due to the noisy initial position
+        
+        # Only receive a reward if the feet are in the air for more than 0.3 seconds
+        return max(0.0, np.sum((self._feet_air_time - 0.3) * self._has_feet_contacted_ground))
 
     def velocity_tracking_reward(self, xy_velocity):
         vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
@@ -210,8 +216,11 @@ class Go1MujocoEnv(MujocoEnv):
             * self.reward_weights["vel_tracking"]
         )
         healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
-        feet_air_time_reward = self.feet_air_time_reward * self.reward_weights["feet_airtime"]
+        feet_air_time_reward = (
+            self.feet_air_time_reward * self.reward_weights["feet_airtime"]
+        )
         rewards = vel_tracking_reward + healthy_reward + feet_air_time_reward
+        # print(f"{vel_tracking_reward=} {healthy_reward=} {feet_air_time_reward=}")
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
         contact_cost = self.contact_cost * self.cost_weights["contact"]
