@@ -53,9 +53,8 @@ class Go1MujocoEnv(MujocoEnv):
 
         self._contact_force_range = (-1.0, 1.0)
 
-        self._feet_contacting_ground_threshold = (
-            0.006  # When idle, feet sites are at 0.0053
-        )
+        # When idle, feet sits at 0.0053, however, we increase this constant to stop the robot from using fast oscillating contact to move forward
+        self._feet_contacting_ground_threshold = 0.025
         self._feet_air_time = np.zeros(4)
 
         self._main_body = 1
@@ -173,7 +172,7 @@ class Go1MujocoEnv(MujocoEnv):
 
         return np.sum(
             self._feet_air_time - 0.5
-        )  # TODO: Does it make sense to subtract 0.5 from all 4?
+        )
 
     def velocity_tracking_reward(self, xy_velocity):
         vel_sqr_error = np.sum(np.square(self._desired_velocity[:2] - xy_velocity))
@@ -211,7 +210,7 @@ class Go1MujocoEnv(MujocoEnv):
             * self.reward_weights["vel_tracking"]
         )
         healthy_reward = self.healthy_reward * self.reward_weights["healthy"]
-        feet_air_time_reward = 0  # TODO: Tune self.feet_air_time_reward * self.reward_weights["feet_airtime"]
+        feet_air_time_reward = self.feet_air_time_reward * self.reward_weights["feet_airtime"]
         rewards = vel_tracking_reward + healthy_reward + feet_air_time_reward
 
         ctrl_cost = self.control_cost(action) * self.cost_weights["action_rate"]
@@ -221,7 +220,6 @@ class Go1MujocoEnv(MujocoEnv):
         # self.dt coefficient does not seem to have an effect on the result
         reward = rewards  # TODO: (rewards - costs) - self.dt might make the gradient small and learning slow
 
-        # TODO: Reward info isnt accurate as it doesn't include the weights
         reward_info = {
             "vel_tracking_reward": vel_tracking_reward,
             "reward_ctrl": -ctrl_cost,
