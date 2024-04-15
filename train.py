@@ -34,9 +34,10 @@ def train(args):
     else:
        run_name = f"{train_time}-{args.run_name}"
 
+    model_path = f"{MODEL_DIR}/{run_name}"
     eval_callback = EvalCallback(
         vec_env,
-        best_model_save_path=f"{MODEL_DIR}/{run_name}",
+        best_model_save_path=model_path,
         log_path=LOG_DIR,
         eval_freq=args.eval_frequency,
         deterministic=True,
@@ -57,6 +58,8 @@ def train(args):
         tb_log_name=run_name,
         callback=eval_callback,
     )
+    # Save final model
+    model.save(model_path)
 
 
 def test(args):
@@ -69,30 +72,32 @@ def test(args):
     NUM_EPISODES = 5
     NUM_EXTRA_STEPS_AFTER_TERMINATION = 0
 
-    episode_reward = 0
-    episode_length = 0
+    total_reward = 0
+    total_length = 0
     for _ in tqdm(range(NUM_EPISODES)):
         obs, _ = env.reset()
         env.render()
         extra = NUM_EXTRA_STEPS_AFTER_TERMINATION
         ep_len = 0
+        ep_reward = 0
         while True:
             action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
-            episode_reward += reward
+            total_reward += reward
+            ep_reward += reward
             
             # time.sleep(0.1)
             ep_len += 1
             if terminated or truncated:
                 extra -= 1
                 if extra <= 0:
-                    print(f"{ep_len=}")
+                    print(f"{ep_len=}  {ep_reward=}")
                     break
             else:
-                episode_length += 1
+                total_length += 1
 
     print(
-        f"Avg episode reward: {episode_reward / NUM_EPISODES}, avg episode length: {episode_length / NUM_EPISODES}"
+        f"Avg episode reward: {total_reward / NUM_EPISODES}, avg episode length: {total_length / NUM_EPISODES}"
     )
 
 
