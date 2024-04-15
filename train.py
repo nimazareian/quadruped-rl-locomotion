@@ -82,6 +82,7 @@ def test(args):
         ep_reward = 0
         while True:
             action, _ = model.predict(obs, deterministic=True)
+            # print(f"{action[[2,5,8,11]]=}")
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward
             ep_reward += reward
