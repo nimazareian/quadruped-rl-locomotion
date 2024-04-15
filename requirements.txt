@@ -1,5 +1,4 @@
 mujoco-python-viewer==0.1.4
-loco-mujoco==0.2
 torch==2.2.1
 numpy
 ipykernel
