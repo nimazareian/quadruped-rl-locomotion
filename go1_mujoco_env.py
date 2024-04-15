@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 DEFAULT_CAMERA_CONFIG = {
-    "distance": 4.0,
+    "distance": 2.0,
 }
 
 
@@ -27,33 +27,32 @@ class Go1MujocoEnv(MujocoEnv):
 
     def __init__(self, **kwargs):
         self.reward_weights = {
-            "linear_vel_tracking": 1.0,
+            "linear_vel_tracking": 2.0, # Was 1.0
             "angular_vel_tracking": 0.5,
-            "healthy": 0.0, # was 0.05
+            "healthy": 0.0,  # was 0.05
             "feet_airtime": 1.0,
         }
         self.cost_weights = {
-            "torque": 0.0002,
-            "vertical_vel": 2,
-            "xy_angular_vel": 0.05,
+            "torque": 0.00002, # Was 0.0002
+            "vertical_vel": 0.2, # Was 1.0
+            "xy_angular_vel": 0.01, # Was 0.05
             "action_rate": 0.01,
         }
-        
+
         self._step = 0
 
         # vx (m/s), vy (m/s), wz (rad/s)
-        self._desired_velocity_min = np.array([-0.5, 0, 0.0]) # y and wz -0.6, 0.6
+        self._desired_velocity_min = np.array([-0.5, 0, 0.0])  # y and wz -0.6, 0.6
         self._desired_velocity_max = np.array([1.5, 0, 0.0])
         self._desired_velocity = self._sample_desired_vel()
+        self._velocity_scale = np.array([2.0, 2.0, 0.25])
 
         self._tracking_velocity_sigma = 0.25
 
-        self._healthy_reward = 1
-        self._healthy_z_range = (0.195, 0.75)
+        # Metrics used to determine if the episode should be terminated
+        self._healthy_z_range = (0.19, 0.65)
         self._healthy_pitch_range = (-np.deg2rad(15), np.deg2rad(15))
         self._healthy_roll_range = (-np.deg2rad(15), np.deg2rad(15))
-
-        self._contact_force_range = (-1.0, 1.0)
 
         # When idle, feet sits at 0.0053, however, we increase this constant to stop the robot from using fast oscillating contact to move forward
         # self._feet_contacting_ground_threshold = 0.025
@@ -88,6 +87,7 @@ class Go1MujocoEnv(MujocoEnv):
         self._last_render_time = -1.0
         self._max_episode_time_sec = 15.0
 
+        self._clip_obs = 100.0
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
         )
@@ -170,11 +170,12 @@ class Go1MujocoEnv(MujocoEnv):
 
         # Award the feets that have just finished their stride (first step with contact)
         air_time_reward = np.sum((self._feet_air_time - 0.5) * first_contact)
-        # TODO: Multiply by if the desired velocity is 0
+        # No award if the desired velocity is very low (i.e. robot should remain stationary and feet shouldn't move)
+        air_time_reward *= np.linalg.norm(self._desired_velocity[:2]) > 0.1
 
         # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
         self._feet_air_time *= ~contact_filter
-        
+
         # TODO: Could penalize for foot sliding like Colab
         # contacting_feet = self.data.site_xvel[list(self._feet_site_name_to_id.values()), 2] * curr_contact
         # print(f"{contacting_feet=}\n")
@@ -183,7 +184,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def healthy_reward(self):
-        return self.is_healthy * self._healthy_reward
+        return self.is_healthy
 
     @property  # TODO: Not used
     def feet_contact_forces_cost(self):
@@ -196,8 +197,10 @@ class Go1MujocoEnv(MujocoEnv):
         # Penalize the robot for not being flat on the ground
         return np.sum(np.square(self.data.qpos[4:6]))
 
-    def torque_cost(self, action):
-        return np.sum(np.square(action))
+    @property
+    def torque_cost(self):
+        # Last 12 values are the motor torques
+        return np.sum(np.square(self.data.qfrc_actuator[-12:]))
 
     def action_rate_cost(self, action):
         return np.sum(np.square(self._last_action - action))
@@ -248,7 +251,7 @@ class Go1MujocoEnv(MujocoEnv):
             + feet_air_time_reward
         )
 
-        ctrl_cost = self.torque_cost(action) * self.cost_weights["torque"]
+        ctrl_cost = self.torque_cost * self.cost_weights["torque"]
         action_rate_cost = (
             self.action_rate_cost(action) * self.cost_weights["action_rate"]
         )
@@ -265,15 +268,17 @@ class Go1MujocoEnv(MujocoEnv):
         # self.dt coefficient does not seem to have an effect on the result
         reward = max(0.0, rewards - costs)
 
-        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {feet_air_time_reward=:.3f}")
+        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {ctrl_cost=:.3f}")
+        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {ctrl_cost=:.3f}  {action_rate_cost=:.3f}  {vertical_vel_cost=:.3f}  {xy_angular_vel_cost=:.3f}")
         # print(f"{self.feet_contact_forces=}")
+        # print(f"{linear_vel_tracking_reward=:.3f}   {angular_vel_tracking_reward=:.3f}   {self._desired_velocity=}")
 
         reward_info = {
             "linear_vel_tracking_reward": linear_vel_tracking_reward,
             "reward_ctrl": -ctrl_cost,
             "reward_survive": healthy_reward,
         }
-        
+
         # print(f"{self.data.qfrc_actuator=}")
 
         return reward, reward_info
@@ -283,34 +288,39 @@ class Go1MujocoEnv(MujocoEnv):
         # The second four are the quaternion representing the orientation of the robot
         # The remaining 12 values are the joint positions
         position = self.data.qpos[7:].flatten()
+        # position[-12:] -= self.init_qpos[-12:]
 
         # The first three values are the global linear velocity of the robot
         # The second three are the angular velocity of the robot
         # The remaining 12 values are the joint velocities
         velocity = self.data.qvel.flatten()
+        velocity[:3] *= self._velocity_scale
 
-        desired_vel = self._desired_velocity
+        desired_vel = self._desired_velocity * self._velocity_scale
         last_action = self._last_action
 
-        return np.concatenate((position, velocity, desired_vel, last_action))
+        curr_obs = np.concatenate((position, velocity, desired_vel, last_action)).clip(
+            -self._clip_obs, self._clip_obs
+        )
+
+        return curr_obs
 
     def reset_model(self):
         # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         # mujoco.mj_resetData(self.model, self.data)
+        # self.set_state(self.init_qpos, self.init_qvel)
 
-        # Reset the position and velocity of the robot
-        noise_low = -self._reset_noise_scale
-        noise_high = self._reset_noise_scale
+        self.data.qpos[:] = self.model.key_qpos + self.np_random.uniform(
+            low=-self._reset_noise_scale,
+            high=self._reset_noise_scale,
+            size=self.model.nq,
+        )
+        self.data.ctrl[:] = (
+            self.model.key_ctrl
+            + self._reset_noise_scale
+            * self.np_random.standard_normal(*self.data.ctrl.shape)
+        )
 
-        qpos = self.init_qpos + self.np_random.uniform(
-            low=noise_low, high=noise_high, size=self.model.nq
-        )
-        qvel = (
-            self.init_qvel
-            + self._reset_noise_scale * self.np_random.standard_normal(self.model.nv)
-        )
-        self.set_state(qpos, qvel)
-        
         # Reset the variables and sample a new desired velocity
         self._desired_velocity = self._sample_desired_vel()
         self._step = 0
@@ -335,4 +345,4 @@ class Go1MujocoEnv(MujocoEnv):
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
         # print(f"Desired velocity: {desired_vel}")
-        return desired_vel
+        return np.array([1.0, 0, 0.0])  # TODO: randomize desired_vel

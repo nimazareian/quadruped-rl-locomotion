@@ -59,7 +59,7 @@ def train(args):
         callback=eval_callback,
     )
     # Save final model
-    model.save(model_path)
+    model.save(f"{model_path}/final_model")
 
 
 def test(args):
