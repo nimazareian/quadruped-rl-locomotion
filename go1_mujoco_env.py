@@ -56,9 +56,9 @@ class Go1MujocoEnv(MujocoEnv):
             "feet_airtime": 1.0,
         }
         self.cost_weights = {
-            "torque": 0.00002,  # Was 0.0002
-            "vertical_vel": 0.2,  # Was 1.0
-            "xy_angular_vel": 0.01,  # Was 0.05
+            "torque": 0.0001,  # Was 0.0002
+            "vertical_vel": 0.4,  # Was 1.0
+            "xy_angular_vel": 0.02,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
         }

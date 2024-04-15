@@ -87,7 +87,7 @@ def test(args):
             total_reward += reward
             ep_reward += reward
             
-            # time.sleep(0.1)
+            time.sleep(0.016)
             ep_len += 1
             if terminated or truncated:
                 extra -= 1
