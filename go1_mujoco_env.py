@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 DEFAULT_CAMERA_CONFIG = {
-    "distance": 2.0,
+    "distance": 3.0,
 }
 
 
@@ -57,7 +57,7 @@ class Go1MujocoEnv(MujocoEnv):
         }
         self.cost_weights = {
             "torque": 0.0001,  # Was 0.0002
-            "vertical_vel": 0.4,  # Was 1.0
+            "vertical_vel": 1.0,  # Was 1.0
             "xy_angular_vel": 0.02,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
@@ -306,7 +306,7 @@ class Go1MujocoEnv(MujocoEnv):
         # self.dt coefficient does not seem to have an effect on the result
         reward = max(0.0, rewards - costs)
 
-        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {joint_limit_cost=:.3f}")
+        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {vertical_vel_cost=:.3f}")
         # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {ctrl_cost=:.3f}  {action_rate_cost=:.3f}  {vertical_vel_cost=:.3f}  {xy_angular_vel_cost=:.3f}")
         # print(f"{self.feet_contact_forces=}")
         # print(f"{linear_vel_tracking_reward=:.3f}   {angular_vel_tracking_reward=:.3f}   {self._desired_velocity=}")
