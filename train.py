@@ -68,7 +68,7 @@ def train(args):
 
 def test(args):
     model_path = Path(args.model_path)
-    
+
     if not args.record_test_episodes:
         # Render the episodes live
         env = Go1MujocoEnv(
@@ -87,7 +87,7 @@ def test(args):
             env, video_folder="recordings/", name_prefix=model_path.parent.name
         )
         inter_frame_sleep = 0.0
-    
+
     model = PPO.load(path=model_path, env=env, verbose=1)
 
     num_episodes = args.num_test_episodes
@@ -123,7 +123,12 @@ def test(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", type=str, required=True, choices=["train", "test"])
-    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument(
+        "--run_name",
+        type=str,
+        default=None,
+        help="Custom name of the run. Note that all runs are saved in the 'models' directory and have the training time prefixed.",
+    )
     parser.add_argument(
         "--num_parallel_envs",
         type=int,
@@ -141,13 +146,23 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to record the test episodes or not. If false, the episodes are rendered in the window.",
     )
-    parser.add_argument("--total_timesteps", type=int, default=1_000_000)
-    parser.add_argument("--eval_frequency", type=int, default=10_000)
+    parser.add_argument(
+        "--total_timesteps",
+        type=int,
+        default=5_000_000,
+        help="Number of timesteps to train the model for",
+    )
+    parser.add_argument(
+        "--eval_frequency",
+        type=int,
+        default=10_000,
+        help="The frequency of evaluating the models while training",
+    )
     parser.add_argument(
         "--model_path",
         type=str,
         default=None,
-        help="Path to the model (.zip)",
+        help="Path to the model (.zip). If passed for training, the model is used as the starting point for training. If passed for testing, the model is used for inference.",
     )
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
