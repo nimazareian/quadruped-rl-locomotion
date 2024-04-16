@@ -8,7 +8,13 @@ from pathlib import Path
 
 
 DEFAULT_CAMERA_CONFIG = {
+    "azimuth": 90.0,
     "distance": 3.0,
+    "elevation": -25.0,
+    "lookat": np.array([0., 0., 0.]),
+    "fixedcamid": 0,
+    "trackbodyid": -1,
+    "type": 2,
 }
 
 
@@ -291,7 +297,7 @@ class Go1MujocoEnv(MujocoEnv):
             + xy_angular_vel_cost
             + joint_limit_cost
         )
-
+        
         reward = max(0.0, rewards - costs)
 
         reward_info = {

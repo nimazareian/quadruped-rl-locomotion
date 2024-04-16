@@ -1,7 +1,9 @@
 import argparse
 import os
 import time
+from pathlib import Path
 
+import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -65,10 +67,28 @@ def train(args):
 
 
 def test(args):
-    env = Go1MujocoEnv(
-        render_mode="human",
-    )
-    model = PPO.load(path=args.model_path, env=env, verbose=1)
+    model_path = Path(args.model_path)
+    
+    if not args.record_test_episodes:
+        # Render the episodes live
+        env = Go1MujocoEnv(
+            render_mode="human",
+        )
+        inter_frame_sleep = 0.016
+    else:
+        # Record the episodes
+        env = Go1MujocoEnv(
+            render_mode="rgb_array",
+            camera_name="tracking",
+            width=1920,
+            height=1080,
+        )
+        env = gym.wrappers.RecordVideo(
+            env, video_folder="recordings/", name_prefix=model_path.parent.name
+        )
+        inter_frame_sleep = 0.0
+    
+    model = PPO.load(path=model_path, env=env, verbose=1)
 
     num_episodes = args.num_test_episodes
     total_reward = 0
@@ -86,7 +106,7 @@ def test(args):
             ep_len += 1
 
             # Slow down the rendering
-            time.sleep(0.016)
+            time.sleep(inter_frame_sleep)
 
             if terminated or truncated:
                 print(f"{ep_len=}  {ep_reward=}")
@@ -115,6 +135,11 @@ if __name__ == "__main__":
         type=int,
         default=5,
         help="Number of episodes to test the model",
+    )
+    parser.add_argument(
+        "--record_test_episodes",
+        action="store_true",
+        help="Whether to record the test episodes or not. If false, the episodes are rendered in the window.",
     )
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--eval_frequency", type=int, default=10_000)
