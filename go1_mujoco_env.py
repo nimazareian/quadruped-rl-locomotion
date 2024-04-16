@@ -1,4 +1,3 @@
-import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.mujoco import MujocoEnv
 
@@ -29,8 +28,8 @@ class Go1MujocoEnv(MujocoEnv):
         MujocoEnv.__init__(
             self,
             model_path=self.model_path.absolute().as_posix(),
-            frame_skip=10,  # Perform an action every 2 frames (dt(=0.002) * 2 = 0.004 seconds -> 250hz action rate)
-            observation_space=None,  # Manually defined afterwards
+            frame_skip=10,  # Perform an action every 10 frames (dt(=0.002) * 10 = 0.02 seconds -> 50hz action rate)
+            observation_space=None,  # Manually set afterwards
             default_camera_config=DEFAULT_CAMERA_CONFIG,
             **kwargs,
         )
@@ -64,8 +63,8 @@ class Go1MujocoEnv(MujocoEnv):
         }
 
         # vx (m/s), vy (m/s), wz (rad/s)
-        self._desired_velocity_min = np.array([-0.5, 0, 0.0])  # y and wz -0.6, 0.6
-        self._desired_velocity_max = np.array([1.5, 0, 0.0])
+        self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
+        self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
         self._desired_velocity = self._sample_desired_vel()
         self._velocity_scale = np.array([2.0, 2.0, 0.25])
         self._tracking_velocity_sigma = 0.25
@@ -98,17 +97,12 @@ class Go1MujocoEnv(MujocoEnv):
         # Action: 12 torque values
         self._last_action = np.zeros(12)
 
-        self._clip_obs = 100.0
+        self._clip_obs_threshold = 100.0
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=self._get_obs().shape, dtype=np.float64
         )
 
-        print(f"{self.action_space=}")
-
-        # In the updated go1_torque.xml, the motors control is clamped to -1.0 and 1.0
-        # But geared up to be equal to the torque of the actual Unitree Go1 motors
-
-        # Feet site name to index mapping
+        # Feet site names to index mapping
         # https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-site
         # https://mujoco.readthedocs.io/en/stable/APIreference/APItypes.html#mjtobj
         feet_site = [
@@ -134,6 +128,7 @@ class Go1MujocoEnv(MujocoEnv):
         reward, reward_info = self._calc_reward(action)
         # TODO: Consider terminating if knees touch the ground
         terminated = not self.is_healthy
+        truncated = self._step >= (self._max_episode_time_sec / self.dt)
         info = {
             "x_position": self.data.qpos[0],
             "y_position": self.data.qpos[1],
@@ -146,12 +141,24 @@ class Go1MujocoEnv(MujocoEnv):
         ):
             self.render()
             self._last_render_time = self.data.time
-            # print(f"{self.data.time=}")
 
         self._last_action = action
-        # truncation=False as the time limit is handled by the `TimeLimit` wrapper added during `make`
-        truncated = self._step >= (self._max_episode_time_sec / self.dt)
+
         return observation, reward, terminated, truncated, info
+
+    @property
+    def is_healthy(self):
+        state = self.state_vector()
+        min_z, max_z = self._healthy_z_range
+        is_healthy = np.isfinite(state).all() and min_z <= state[2] <= max_z
+
+        min_roll, max_roll = self._healthy_roll_range
+        is_healthy = is_healthy and min_roll <= state[4] <= max_roll
+
+        min_pitch, max_pitch = self._healthy_pitch_range
+        is_healthy = is_healthy and min_pitch <= state[5] <= max_pitch
+
+        return is_healthy
 
     @property
     def feet_contact_forces(self):
@@ -173,13 +180,12 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def heading_tracking_reward(self):
-        # TODO: Unsure how to calculate the robots heading. qpos[3:7] are the quaternion values
+        # TODO: qpos[3:7] are the quaternion values
         pass
 
     @property
     def feet_air_time_reward(self):
         """Award strides depending on their duration only when the feet makes contact with the ground"""
-        # TODO: For this to work as expected, do we need to pass a history of observations?
         feet_contact_force_mag = self.feet_contact_forces
         curr_contact = feet_contact_force_mag > 0.1
         contact_filter = np.logical_or(curr_contact, self._last_contacts)
@@ -198,10 +204,6 @@ class Go1MujocoEnv(MujocoEnv):
         # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
         self._feet_air_time *= ~contact_filter
 
-        # TODO: Could penalize for foot sliding like Colab
-        # contacting_feet = self.data.site_xvel[list(self._feet_site_name_to_id.values()), 2] * curr_contact
-        # print(f"{contacting_feet=}\n")
-
         return air_time_reward
 
     @property
@@ -215,14 +217,14 @@ class Go1MujocoEnv(MujocoEnv):
             (self.feet_contact_forces - self._max_contact_force).clip(min=0.0)
         )
 
-    @property  # TODO: Not actually used by RSL. Also reading quaternion values...
+    @property  # TODO: Not used. Values are also quaternion!
     def non_flat_base_cost(self):
         # Penalize the robot for not being flat on the ground
         return np.sum(np.square(self.data.qpos[4:6]))
 
     @property
     def joint_limit_cost(self):
-        # Penalize the robot for having the joints outside of the soft control range
+        # Penalize the robot for joints exceeding the soft control range
         out_of_range = (self._soft_ctrl_range[:, 0] - self.data.qpos[7:]).clip(
             min=0.0
         ) + (self.data.qpos[7:] - self._soft_ctrl_range[:, 1]).clip(min=0.0)
@@ -241,30 +243,15 @@ class Go1MujocoEnv(MujocoEnv):
     def xy_angular_velocity_cost(self):
         return np.sum(np.square(self.data.qvel[3:5]))
 
-    @property
-    def is_healthy(self):
-        state = self.state_vector()
-        min_z, max_z = self._healthy_z_range
-        is_healthy = np.isfinite(state).all() and min_z <= state[2] <= max_z
-
-        min_roll, max_roll = self._healthy_roll_range
-        is_healthy = is_healthy and min_roll <= state[4] <= max_roll
-
-        min_pitch, max_pitch = self._healthy_pitch_range
-        is_healthy = is_healthy and min_pitch <= state[5] <= max_pitch
-
-        return is_healthy
-
     def action_rate_cost(self, action):
         return np.sum(np.square(self._last_action - action))
 
     def _calc_reward(self, action):
-        # TODO: Add custom Tensorboard calls for individual reward functions to get a better
-        #   sense of the contribution of each reward function
-        # TODO:
-        #  - Cost for thigh or calf contact with the ground
-        #  - Cost for reaching limit of joint angles and motor velocities
-        #  - Give reward/cost based on the height of the robot being at (0.25?!) NOT ACTUALLY USED BY RSL!!!
+        # TODO: Add debug mode with custom Tensorboard calls for individual reward
+        #   functions to get a better sense of the contribution of each reward function
+        # TODO: Cost for thigh or calf contact with the ground
+
+        # Positive Rewards
         linear_vel_tracking_reward = (
             self.linear_velocity_tracking_reward
             * self.reward_weights["linear_vel_tracking"]
@@ -284,6 +271,7 @@ class Go1MujocoEnv(MujocoEnv):
             + feet_air_time_reward
         )
 
+        # Negative Costs
         ctrl_cost = self.torque_cost * self.cost_weights["torque"]
         action_rate_cost = (
             self.action_rate_cost(action) * self.cost_weights["action_rate"]
@@ -303,13 +291,7 @@ class Go1MujocoEnv(MujocoEnv):
             + joint_limit_cost
         )
 
-        # self.dt coefficient does not seem to have an effect on the result
         reward = max(0.0, rewards - costs)
-
-        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {vertical_vel_cost=:.3f}")
-        # print(f"sum_{reward=:.3f}  {rewards=:.3f}  {costs=:.3f}  {ctrl_cost=:.3f}  {action_rate_cost=:.3f}  {vertical_vel_cost=:.3f}  {xy_angular_vel_cost=:.3f}")
-        # print(f"{self.feet_contact_forces=}")
-        # print(f"{linear_vel_tracking_reward=:.3f}   {angular_vel_tracking_reward=:.3f}   {self._desired_velocity=}")
 
         reward_info = {
             "linear_vel_tracking_reward": linear_vel_tracking_reward,
@@ -322,6 +304,7 @@ class Go1MujocoEnv(MujocoEnv):
     def _get_obs(self):
         # The first three indices are the global x,y,z position of the trunk of the robot
         # The second four are the quaternion representing the orientation of the robot
+        # The above seven values are ignored since they are privileged information
         # The remaining 12 values are the joint positions
         # The joint positions are relative to the starting position
         position = self.data.qpos[7:].flatten() - self.model.key_qpos[0, 7:]
@@ -336,16 +319,13 @@ class Go1MujocoEnv(MujocoEnv):
         last_action = self._last_action
 
         curr_obs = np.concatenate((position, velocity, desired_vel, last_action)).clip(
-            -self._clip_obs, self._clip_obs
+            -self._clip_obs_threshold, self._clip_obs_threshold
         )
 
         return curr_obs
 
     def reset_model(self):
-        # mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
-        # mujoco.mj_resetData(self.model, self.data)
-        # self.set_state(self.init_qpos, self.init_qvel)
-
+        # Reset the position and control values with noise
         self.data.qpos[:] = self.model.key_qpos[0] + self.np_random.uniform(
             low=-self._reset_noise_scale,
             high=self._reset_noise_scale,
@@ -380,5 +360,4 @@ class Go1MujocoEnv(MujocoEnv):
         desired_vel = np.random.default_rng().uniform(
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
-        # print(f"Desired velocity: {desired_vel}")
-        return np.array([1.0, 0, 0.0])  # TODO: randomize desired_vel
+        return np.array([1.0, 0, 0.0])  # TODO: Train with randomized desired_vel

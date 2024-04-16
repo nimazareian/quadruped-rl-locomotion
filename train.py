@@ -2,19 +2,12 @@ import argparse
 import os
 import time
 
-import numpy as np
-
-import gymnasium as gym
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from go1_mujoco_env import Go1MujocoEnv
 from tqdm import tqdm
-
-
-NUM_LOGICAL_CPU_CORES = 12
-SEED = 0
 
 MODEL_DIR = "models"
 LOG_DIR = "logs"
@@ -23,23 +16,30 @@ LOG_DIR = "logs"
 def train(args):
     vec_env = make_vec_env(
         Go1MujocoEnv,
-        n_envs=NUM_LOGICAL_CPU_CORES,
-        seed=SEED,
+        n_envs=args.num_parallel_envs,
+        seed=args.seed,
         vec_env_cls=SubprocVecEnv,
     )
 
     train_time = time.strftime("%Y-%m-%d_%H-%M-%S")
     if args.run_name is None:
-       run_name = f"{train_time}"
+        run_name = f"{train_time}"
     else:
-       run_name = f"{train_time}-{args.run_name}"
+        run_name = f"{train_time}-{args.run_name}"
 
     model_path = f"{MODEL_DIR}/{run_name}"
+    print(
+        f"Training on {args.num_parallel_envs} parallel training environments and saving models to '{model_path}'"
+    )
+
+    # Evaluate the model every eval_frequency for 5 episodes and save
+    # it if it's improved over the previous best model.
     eval_callback = EvalCallback(
         vec_env,
         best_model_save_path=model_path,
         log_path=LOG_DIR,
         eval_freq=args.eval_frequency,
+        n_eval_episodes=5,
         deterministic=True,
         render=False,
     )
@@ -49,6 +49,8 @@ def train(args):
             path=args.model_path, env=vec_env, verbose=1, tensorboard_log=LOG_DIR
         )
     else:
+        # Default PPO model hyper-parameters give good results
+        # TODO: Use dynamic learning rate
         model = PPO("MlpPolicy", vec_env, verbose=1, tensorboard_log=LOG_DIR)
 
     model.learn(
@@ -66,61 +68,70 @@ def test(args):
     env = Go1MujocoEnv(
         render_mode="human",
     )
-
     model = PPO.load(path=args.model_path, env=env, verbose=1)
 
-    NUM_EPISODES = 5
-    NUM_EXTRA_STEPS_AFTER_TERMINATION = 0
-
+    num_episodes = args.num_test_episodes
     total_reward = 0
     total_length = 0
-    for _ in tqdm(range(NUM_EPISODES)):
+    for _ in tqdm(range(num_episodes)):
         obs, _ = env.reset()
         env.render()
-        extra = NUM_EXTRA_STEPS_AFTER_TERMINATION
+
         ep_len = 0
         ep_reward = 0
         while True:
             action, _ = model.predict(obs, deterministic=True)
-            # print(f"{action[[2,5,8,11]]=}")
             obs, reward, terminated, truncated, info = env.step(action)
-            total_reward += reward
             ep_reward += reward
-            
-            time.sleep(0.016)
             ep_len += 1
+
+            # Slow down the rendering
+            time.sleep(0.016)
+
             if terminated or truncated:
-                extra -= 1
-                if extra <= 0:
-                    print(f"{ep_len=}  {ep_reward=}")
-                    break
-            else:
-                total_length += 1
+                print(f"{ep_len=}  {ep_reward=}")
+                break
+
+        total_length += ep_len
+        total_reward += ep_reward
 
     print(
-        f"Avg episode reward: {total_reward / NUM_EPISODES}, avg episode length: {total_length / NUM_EPISODES}"
+        f"Avg episode reward: {total_reward / num_episodes}, avg episode length: {total_length / num_episodes}"
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="UnitreeA1.simple.perfect")
+    parser.add_argument("--run", type=str, required=True, choices=["train", "test"])
+    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument(
+        "--num_parallel_envs",
+        type=int,
+        default=12,
+        help="Number of parallel environments while training",
+    )
+    parser.add_argument(
+        "--num_test_episodes",
+        type=int,
+        default=5,
+        help="Number of episodes to test the model",
+    )
     parser.add_argument("--total_timesteps", type=int, default=1_000_000)
     parser.add_argument("--eval_frequency", type=int, default=10_000)
     parser.add_argument(
         "--model_path",
         type=str,
         default=None,
-        help="Path to the model to continue training",
+        help="Path to the model (.zip)",
     )
-    parser.add_argument("--run", type=str, default="train", choices=["train", "test"])
-    parser.add_argument("--run_name", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    os.makedirs(LOG_DIR, exist_ok=True)
-
     if args.run == "train":
+        os.makedirs(MODEL_DIR, exist_ok=True)
+        os.makedirs(LOG_DIR, exist_ok=True)
         train(args)
     elif args.run == "test":
+        if args.model_path is None:
+            raise ValueError("--model_path is required for testing")
         test(args)
