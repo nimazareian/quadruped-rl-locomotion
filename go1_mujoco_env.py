@@ -22,7 +22,7 @@ class Go1MujocoEnv(MujocoEnv):
             "depth_array",
         ],
     }
-    model_path = Path("./unitree_go1/scene_position.xml")
+    model_path = Path("./unitree_go1/scene_torque.xml")
 
     def __init__(self, **kwargs):
         MujocoEnv.__init__(
@@ -55,8 +55,8 @@ class Go1MujocoEnv(MujocoEnv):
             "feet_airtime": 1.0,
         }
         self.cost_weights = {
-            "torque": 0.0001,  # Was 0.0002
-            "vertical_vel": 1.0,  # Was 1.0
+            "torque": 0.0002,
+            "vertical_vel": 0.5,  # Was 1.0
             "xy_angular_vel": 0.02,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
@@ -88,9 +88,10 @@ class Go1MujocoEnv(MujocoEnv):
                 - self.model.actuator_ctrlrange[:, 0]
             )
         )
-        self._soft_ctrl_range = np.copy(self.model.actuator_ctrlrange)
-        self._soft_ctrl_range[:, 0] += ctrl_range_offset
-        self._soft_ctrl_range[:, 1] -= ctrl_range_offset
+        # First value is the root joint, so we ignore it
+        self._soft_joint_range = np.copy(self.model.jnt_range[1:])
+        self._soft_joint_range[:, 0] += ctrl_range_offset
+        self._soft_joint_range[:, 1] -= ctrl_range_offset
 
         self._reset_noise_scale = 0.1
 
@@ -225,9 +226,9 @@ class Go1MujocoEnv(MujocoEnv):
     @property
     def joint_limit_cost(self):
         # Penalize the robot for joints exceeding the soft control range
-        out_of_range = (self._soft_ctrl_range[:, 0] - self.data.qpos[7:]).clip(
+        out_of_range = (self._soft_joint_range[:, 0] - self.data.qpos[7:]).clip(
             min=0.0
-        ) + (self.data.qpos[7:] - self._soft_ctrl_range[:, 1]).clip(min=0.0)
+        ) + (self.data.qpos[7:] - self._soft_joint_range[:, 1]).clip(min=0.0)
         return np.sum(out_of_range)
 
     @property
