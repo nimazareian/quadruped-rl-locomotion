@@ -4,5 +4,5 @@ tensorboard
 gymnasium==0.29.1
 protobuf==4.25.3 # Tensorboard throws an error with newer versions of protobuf
 stable-baselines3[extra]==2.3.0
-mujoco==3.1.4
+mujoco==2.3.0
 imageio
