@@ -367,4 +367,4 @@ class Go1MujocoEnv(MujocoEnv):
         desired_vel = np.random.default_rng().uniform(
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
-        return np.array([1.6, 0, 0.0])  # TODO: Train with randomized desired_vel
+        return np.array([1.0, 0, 0.0])  # TODO: Train with randomized desired_vel
