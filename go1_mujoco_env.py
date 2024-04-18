@@ -28,12 +28,12 @@ class Go1MujocoEnv(MujocoEnv):
             "depth_array",
         ],
     }
-    model_path = Path("./unitree_go1/scene_torque.xml")
 
-    def __init__(self, **kwargs):
+    def __init__(self, ctrl_type="torque", **kwargs):
+        model_path = Path(f"./unitree_go1/scene_{ctrl_type}.xml")
         MujocoEnv.__init__(
             self,
-            model_path=self.model_path.absolute().as_posix(),
+            model_path=model_path.absolute().as_posix(),
             frame_skip=10,  # Perform an action every 10 frames (dt(=0.002) * 10 = 0.02 seconds -> 50hz action rate)
             observation_space=None,  # Manually set afterwards
             default_camera_config=DEFAULT_CAMERA_CONFIG,

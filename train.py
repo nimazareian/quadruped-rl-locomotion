@@ -18,6 +18,7 @@ LOG_DIR = "logs"
 def train(args):
     vec_env = make_vec_env(
         Go1MujocoEnv,
+        vec_env_kwargs={"ctrl_type": args.ctrl_type},
         n_envs=args.num_parallel_envs,
         seed=args.seed,
         vec_env_cls=SubprocVecEnv,
@@ -163,6 +164,13 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Path to the model (.zip). If passed for training, the model is used as the starting point for training. If passed for testing, the model is used for inference.",
+    )
+    parser.add_argument(
+        "--ctrl_type",
+        type=str,
+        choices=["torque", "position"],
+        default="torque",
+        help="Whether the model should control the robot using torque or position control.",
     )
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
