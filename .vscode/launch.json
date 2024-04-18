@@ -5,12 +5,17 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Train LocoMujoco Test Env",
+            "name": "Debug Train go1 mujuco env",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/loco_mujoco_test_env.py",
+            "program": "${workspaceFolder}/train.py",
             "console": "integratedTerminal",
-            "args": "--run train",
+            "args": [
+                "--run",
+                "test",
+                "--model_path",
+                "models/2024-04-16_10-11-57-x=1_torque_ctrl_fixed_joint_range_5mill_iter_working_well/final_model.zip"
+            ],
             "justMyCode": false
         }
     ]
