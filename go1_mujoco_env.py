@@ -71,7 +71,7 @@ class Go1MujocoEnv(MujocoEnv):
         # vx (m/s), vy (m/s), wz (rad/s)
         self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
         self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
-        self._desired_velocity = self._sample_desired_vel()
+        self._desired_velocity = self._sample_desired_vel() # [0.5, 0.0, 0.0]
         self._velocity_scale = np.array([2.0, 2.0, 0.25])
         self._tracking_velocity_sigma = 0.25
 
@@ -182,7 +182,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def angular_velocity_tracking_reward(self):
-        vel_sqr_error = (self._desired_velocity[2] - self.data.qvel[5]) ** 2
+        vel_sqr_error = np.square(self._desired_velocity[2] - self.data.qvel[6])
         return np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
 
     @property
@@ -209,7 +209,7 @@ class Go1MujocoEnv(MujocoEnv):
         air_time_reward *= np.linalg.norm(self._desired_velocity[:2]) > 0.1
 
         # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
-        self._feet_air_time *= ~contact_filter
+        self._feet_air_time *=  np.logical_not(contact_filter)
 
         return air_time_reward
 
@@ -248,7 +248,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def xy_angular_velocity_cost(self):
-        return np.sum(np.square(self.data.qvel[3:5]))
+        return np.sum(np.square(self.data.qvel[4:6]))
 
     def action_rate_cost(self, action):
         return np.sum(np.square(self._last_action - action))
@@ -367,4 +367,4 @@ class Go1MujocoEnv(MujocoEnv):
         desired_vel = np.random.default_rng().uniform(
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
-        return np.array([1.0, 0, 0.0])  # TODO: Train with randomized desired_vel
+        return np.array([0.5, 0, 0.0])  # TODO: Train with randomized desired_vel
