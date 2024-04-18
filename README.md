@@ -1,10 +1,6 @@
 # Training Quadruped Locomotion using Reinforcement Learning in Mujoco
 
-<div align="center">
-    <video width="640" height="360" controls>
-    <source src="recordings\2024-04-16_10-11-57-x=1_torque_ctrl_fixed_joint_range_5mill_iter_working_well-episode-0.mp4" type="video/mp4">
-    </video>
-</div>
+https://github.com/nimazareian/quadruped-rl-locomotion/assets/28585597/262b7812-0b8f-4758-aedd-a429f743fb69
 
 
 A custom gymnasium environment for training quadruped locomotion using reinforcement learning in the Mujoco simulator. The environment has been set up for the Unitree Go1 robot, however, it can be easily extended to train other robots as well. 
