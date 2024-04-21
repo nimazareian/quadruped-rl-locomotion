@@ -1,3 +1,4 @@
+
 <mujoco model="go1">
   <compiler angle="radian" meshdir="assets" autolimits="true"/>
 
@@ -6,10 +7,10 @@
   <default>
     <default class="go1">
       <geom friction="0.6" margin="0.001" condim="1"/>
-      <joint axis="0 1 0" damping="2" armature="0.01" frictionloss="0.2"/>
-      <position kp="100" forcerange="-23.7 23.7"/>
+      <joint axis="0 1 0" damping="2.0" armature="0.01" frictionloss="0.2"/>
+      <position kp="20" forcerange="-23.7 23.7"/>
       <default class="abduction">
-        <joint axis="1 0 0" damping="1" range="-0.863 0.863"/>
+        <joint axis="1 0 0" damping="2.0" range="-0.863 0.863"/>
         <position ctrlrange="-0.863 0.863"/>
       </default>
       <default class="hip">
@@ -61,7 +62,7 @@
         <default class="foot">
           <!-- https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom-friction:~:text=over%20the%20material.-,friction,-%3A%20real(3 -->
           <geom type="sphere" size="0.023" pos="0 0 -0.213" priority="1" solimp="0.015 1 0.031" condim="6"
-            friction="2.0 0.02 0.01"/>
+            friction="1.0 0.02 0.01"/>
         </default>
       </default>
     </default>
@@ -226,8 +227,8 @@
   </actuator>
 
   <keyframe>
-    <key name="home" qpos="0 0 0.30 1 0 0 0 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"
-      ctrl="0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8 0 0.9 -1.8"/>
+    <key name="home" qpos="0 0 0.35 1 0 0 0 0.0 0.8 -1.5 0.0 0.8 -1.5 0.0 1.0 -1.5 0.0 1.0 -1.5"
+      ctrl="0.0 0.8 -1.5 0.0 0.8 -1.5 0.0 1.0 -1.5 0.0 1.0 -1.5"/>
   </keyframe>
 
   <!-- <keyframe>
