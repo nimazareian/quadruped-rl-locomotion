@@ -55,24 +55,32 @@ class Go1MujocoEnv(MujocoEnv):
 
         # Weights for the reward and cost functions
         self.reward_weights = {
-            "linear_vel_tracking": 2.0,  # Was 1.0
+            "linear_vel_tracking": 1.0,  # Was 1.0
             "angular_vel_tracking": 0.5,
             "healthy": 0.0,  # was 0.05
             "feet_airtime": 1.0,
         }
         self.cost_weights = {
             "torque": 0.0002,
-            "vertical_vel": 0.5,  # Was 1.0
-            "xy_angular_vel": 0.02,  # Was 0.05
+            "vertical_vel": 2.0,  # Was 1.0
+            "xy_angular_vel": 0.05,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
+            "joint_acceleration": -2.5e-7, 
         }
+
+        self._curriculum_base = 0.3
 
         # vx (m/s), vy (m/s), wz (rad/s)
         self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
         self._desired_velocity_max = np.array([1.5, 0.6, 0.6])
         self._desired_velocity = self._sample_desired_vel() # [0.5, 0.0, 0.0]
-        self._velocity_scale = np.array([2.0, 2.0, 0.25])
+        self._obs_scale = {
+            'linear_velocity': 2.0,
+            'angular_velocity': 0.25,
+            'dofs_position': 1.0,
+            'dofs_velocity': 0.05,
+        }
         self._tracking_velocity_sigma = 0.25
 
         # Metrics used to determine if the episode should be terminated
@@ -95,7 +103,7 @@ class Go1MujocoEnv(MujocoEnv):
             )
         )
         # First value is the root joint, so we ignore it
-        self._soft_joint_range = np.copy(self.model.jnt_range[1:])
+        self._soft_joint_range = np.copy(self.model.actuator_ctrlrange)
         self._soft_joint_range[:, 0] += ctrl_range_offset
         self._soft_joint_range[:, 1] -= ctrl_range_offset
 
@@ -194,7 +202,7 @@ class Go1MujocoEnv(MujocoEnv):
     def feet_air_time_reward(self):
         """Award strides depending on their duration only when the feet makes contact with the ground"""
         feet_contact_force_mag = self.feet_contact_forces
-        curr_contact = feet_contact_force_mag > 0.1
+        curr_contact = feet_contact_force_mag > 1.0
         contact_filter = np.logical_or(curr_contact, self._last_contacts)
         self._last_contacts = curr_contact
 
@@ -244,7 +252,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def vertical_velocity_cost(self):
-        return self.data.qvel[2] ** 2
+        return np.square(self.data.qvel[2])
 
     @property
     def xy_angular_velocity_cost(self):
@@ -252,7 +260,15 @@ class Go1MujocoEnv(MujocoEnv):
 
     def action_rate_cost(self, action):
         return np.sum(np.square(self._last_action - action))
-
+    
+    @property
+    def acceleration_cost(self):
+        return np.sum(np.square(self.data.qacc[6:]))
+    
+    @property
+    def curriculum_factor(self):
+        return self._curriculum_base ** 0.997
+    
     def _calc_reward(self, action):
         # TODO: Add debug mode with custom Tensorboard calls for individual reward
         #   functions to get a better sense of the contribution of each reward function
@@ -290,16 +306,18 @@ class Go1MujocoEnv(MujocoEnv):
             self.xy_angular_velocity_cost * self.cost_weights["xy_angular_vel"]
         )
         joint_limit_cost = self.joint_limit_cost * self.cost_weights["joint_limit"]
+        joint_acceleration_cost = self.acceleration_cost * self.cost_weights["joint_acceleration"]
         costs = (
             ctrl_cost
             + action_rate_cost
             + vertical_vel_cost
             + xy_angular_vel_cost
             + joint_limit_cost
+            + joint_acceleration_cost
         )
         
         reward = max(0.0, rewards - costs)
-
+        # reward = rewards - self.curriculum_factor * costs
         reward_info = {
             "linear_vel_tracking_reward": linear_vel_tracking_reward,
             "reward_ctrl": -ctrl_cost,
@@ -314,18 +332,25 @@ class Go1MujocoEnv(MujocoEnv):
         # The above seven values are ignored since they are privileged information
         # The remaining 12 values are the joint positions
         # The joint positions are relative to the starting position
-        position = self.data.qpos[7:].flatten() - self.model.key_qpos[0, 7:]
+        dofs_position = self.data.qpos[7:].flatten() - self.model.key_qpos[0, 7:]
 
         # The first three values are the global linear velocity of the robot
         # The second three are the angular velocity of the robot
         # The remaining 12 values are the joint velocities
         velocity = self.data.qvel.flatten()
-        velocity[:3] *= self._velocity_scale
+        base_linear_velocity = velocity[:3]
+        base_angular_velocity = velocity[3:6]
+        dofs_velocity = velocity[6:]
 
-        desired_vel = self._desired_velocity * self._velocity_scale
+        desired_vel = self._desired_velocity
         last_action = self._last_action
 
-        curr_obs = np.concatenate((position, velocity, desired_vel, last_action)).clip(
+        curr_obs = np.concatenate((base_linear_velocity * self._obs_scale['linear_velocity'], 
+                                   base_angular_velocity * self._obs_scale['angular_velocity'], 
+                                   dofs_position * self._obs_scale['dofs_position'], 
+                                   dofs_velocity * self._obs_scale['dofs_velocity'],
+                                   last_action,
+                                   desired_vel * self._obs_scale['linear_velocity'])).clip(
             -self._clip_obs_threshold, self._clip_obs_threshold
         )
 
