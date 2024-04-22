@@ -66,10 +66,13 @@ class Go1MujocoEnv(MujocoEnv):
             "xy_angular_vel": 0.05,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
-            "joint_acceleration": -2.5e-7, 
+            "joint_acceleration": 2.5e-7, 
+            "orientation": 1.0,
+            "collision": 1.0
         }
 
         self._curriculum_base = 0.3
+        self._gravity_vector = np.array([0.0, 0.0, -9.81])
 
         # vx (m/s), vy (m/s), wz (rad/s)
         self._desired_velocity_min = np.array([-0.5, -0.6, -0.6])
@@ -84,13 +87,14 @@ class Go1MujocoEnv(MujocoEnv):
         self._tracking_velocity_sigma = 0.25
 
         # Metrics used to determine if the episode should be terminated
-        self._healthy_z_range = (0.19, 0.65)
-        self._healthy_pitch_range = (-np.deg2rad(15), np.deg2rad(15))
-        self._healthy_roll_range = (-np.deg2rad(15), np.deg2rad(15))
+        self._healthy_z_range = (0.22, 0.65)
+        self._healthy_pitch_range = (-np.deg2rad(10), np.deg2rad(10))
+        self._healthy_roll_range = (-np.deg2rad(10), np.deg2rad(10))
 
         self._feet_air_time = np.zeros(4)
         self._last_contacts = np.zeros(4)
         self._cfrc_ext_feet_indices = [4, 7, 10, 13]  # 4:FR, 7:FL, 10:RR, 13:RL
+        self._cfrc_ext_contact_indices = [2, 3, 5, 6, 8, 9, 11, 12]
 
         # Non-penalized degrees of freedom range of the control joints
         dof_position_limit_multiplier = 0.9  # The % of the range that is not penalized
@@ -174,6 +178,16 @@ class Go1MujocoEnv(MujocoEnv):
         is_healthy = is_healthy and min_pitch <= state[5] <= max_pitch
 
         return is_healthy
+    
+    @property
+    def projected_gravity(self):
+        w, x, y, z = self.data.qpos[3:7]
+        euler_orientation = np.array(self.euler_from_quaternion(w, x, y, z))
+        projected_gravity_not_normalized = np.dot(self._gravity_vector, euler_orientation) * euler_orientation
+        if np.linalg.norm(projected_gravity_not_normalized) == 0:
+            return projected_gravity_not_normalized
+        else:
+            return (projected_gravity_not_normalized / np.linalg.norm(projected_gravity_not_normalized))
 
     @property
     def feet_contact_forces(self):
@@ -190,7 +204,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def angular_velocity_tracking_reward(self):
-        vel_sqr_error = np.square(self._desired_velocity[2] - self.data.qvel[6])
+        vel_sqr_error = np.square(self._desired_velocity[2] - self.data.qvel[5])
         return np.exp(-vel_sqr_error / self._tracking_velocity_sigma)
 
     @property
@@ -217,7 +231,7 @@ class Go1MujocoEnv(MujocoEnv):
         air_time_reward *= np.linalg.norm(self._desired_velocity[:2]) > 0.1
 
         # zero-out the air time for the feet that have just made contact (i.e. contact_filter==1)
-        self._feet_air_time *=  np.logical_not(contact_filter)
+        self._feet_air_time *=  ~contact_filter
 
         return air_time_reward
 
@@ -232,10 +246,15 @@ class Go1MujocoEnv(MujocoEnv):
             (self.feet_contact_forces - self._max_contact_force).clip(min=0.0)
         )
 
-    @property  # TODO: Not used. Values are also quaternion!
+    @property
     def non_flat_base_cost(self):
         # Penalize the robot for not being flat on the ground
-        return np.sum(np.square(self.data.qpos[4:6]))
+        return np.sum(np.square(self.projected_gravity[:2]))
+    
+    @property
+    def collision_cost(self):
+        # Penalize collisions on selected bodies
+        return np.sum(1.*(np.linalg.norm(self.data.cfrc_ext[self._cfrc_ext_contact_indices]) > 0.1))
 
     @property
     def joint_limit_cost(self):
@@ -256,7 +275,7 @@ class Go1MujocoEnv(MujocoEnv):
 
     @property
     def xy_angular_velocity_cost(self):
-        return np.sum(np.square(self.data.qvel[4:6]))
+        return np.sum(np.square(self.data.qvel[3:5]))
 
     def action_rate_cost(self, action):
         return np.sum(np.square(self._last_action - action))
@@ -307,6 +326,8 @@ class Go1MujocoEnv(MujocoEnv):
         )
         joint_limit_cost = self.joint_limit_cost * self.cost_weights["joint_limit"]
         joint_acceleration_cost = self.acceleration_cost * self.cost_weights["joint_acceleration"]
+        orientation_cost = self.non_flat_base_cost * self.cost_weights["orientation"]
+        collision_cost = self.collision_cost * self.cost_weights["collision"]
         costs = (
             ctrl_cost
             + action_rate_cost
@@ -314,6 +335,7 @@ class Go1MujocoEnv(MujocoEnv):
             + xy_angular_vel_cost
             + joint_limit_cost
             + joint_acceleration_cost
+            + orientation_cost
         )
         
         reward = max(0.0, rewards - costs)
@@ -344,13 +366,15 @@ class Go1MujocoEnv(MujocoEnv):
 
         desired_vel = self._desired_velocity
         last_action = self._last_action
+        projected_gravity = self.projected_gravity
 
-        curr_obs = np.concatenate((base_linear_velocity * self._obs_scale['linear_velocity'], 
-                                   base_angular_velocity * self._obs_scale['angular_velocity'], 
-                                   dofs_position * self._obs_scale['dofs_position'], 
+        curr_obs = np.concatenate((base_linear_velocity * self._obs_scale['linear_velocity'],
+                                   base_angular_velocity * self._obs_scale['angular_velocity'],
+                                   projected_gravity,
+                                   desired_vel * self._obs_scale['linear_velocity'],
+                                   dofs_position * self._obs_scale['dofs_position'],
                                    dofs_velocity * self._obs_scale['dofs_velocity'],
-                                   last_action,
-                                   desired_vel * self._obs_scale['linear_velocity'])).clip(
+                                   last_action)).clip(
             -self._clip_obs_threshold, self._clip_obs_threshold
         )
 
@@ -393,3 +417,26 @@ class Go1MujocoEnv(MujocoEnv):
             low=self._desired_velocity_min, high=self._desired_velocity_max
         )
         return np.array([0.5, 0, 0.0])  # TODO: Train with randomized desired_vel
+    
+    @staticmethod
+    def euler_from_quaternion(w, x, y, z):
+        """
+        Convert a quaternion into euler angles (roll, pitch, yaw)
+        roll is rotation around x in radians (counterclockwise)
+        pitch is rotation around y in radians (counterclockwise)
+        yaw is rotation around z in radians (counterclockwise)
+        """
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + y * y)
+        roll_x = np.arctan2(t0, t1)
+     
+        t2 = +2.0 * (w * y - z * x)
+        t2 = +1.0 if t2 > +1.0 else t2
+        t2 = -1.0 if t2 < -1.0 else t2
+        pitch_y = np.arcsin(t2)
+     
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (y * y + z * z)
+        yaw_z = np.arctan2(t3, t4)
+     
+        return roll_x, pitch_y, yaw_z # in radians
