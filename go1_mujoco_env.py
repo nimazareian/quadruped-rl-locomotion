@@ -55,8 +55,8 @@ class Go1MujocoEnv(MujocoEnv):
 
         # Weights for the reward and cost functions
         self.reward_weights = {
-            "linear_vel_tracking": 1.0,  # Was 1.0
-            "angular_vel_tracking": 0.5,
+            "linear_vel_tracking": 2.0,  # Was 1.0
+            "angular_vel_tracking": 1.0,
             "healthy": 0.0,  # was 0.05
             "feet_airtime": 1.0,
         }
@@ -66,10 +66,11 @@ class Go1MujocoEnv(MujocoEnv):
             "xy_angular_vel": 0.05,  # Was 0.05
             "action_rate": 0.01,
             "joint_limit": 10.0,
+            "joint_velocity": 0.01,
             "joint_acceleration": 2.5e-7, 
             "orientation": 1.0,
             "collision": 1.0,
-            "default_joint_position": 1.0
+            "default_joint_position": 0.1
         }
 
         self._curriculum_base = 0.3
@@ -228,7 +229,7 @@ class Go1MujocoEnv(MujocoEnv):
         self._feet_air_time += self.dt
 
         # Award the feets that have just finished their stride (first step with contact)
-        air_time_reward = np.sum((self._feet_air_time - 0.5) * first_contact)
+        air_time_reward = np.sum((self._feet_air_time - 1.0) * first_contact)
         # No award if the desired velocity is very low (i.e. robot should remain stationary and feet shouldn't move)
         air_time_reward *= np.linalg.norm(self._desired_velocity[:2]) > 0.1
 
@@ -283,12 +284,20 @@ class Go1MujocoEnv(MujocoEnv):
         return np.sum(np.square(self._last_action - action))
     
     @property
+    def joint_velocity_cost(self):
+        return np.sum(np.square(self.data.qvel[6:]))
+    
+    @property
     def acceleration_cost(self):
         return np.sum(np.square(self.data.qacc[6:]))
     
     @property
     def default_joint_position_cost(self):
         return np.sum(np.square(self.data.qpos[7:] - self._default_joint_position))
+    
+    @property
+    def smoothness_cost(self):
+        return np.sum(np.square(self.data.qpos[7:] - self._last_action))
     
     @property
     def curriculum_factor(self):
@@ -331,6 +340,7 @@ class Go1MujocoEnv(MujocoEnv):
             self.xy_angular_velocity_cost * self.cost_weights["xy_angular_vel"]
         )
         joint_limit_cost = self.joint_limit_cost * self.cost_weights["joint_limit"]
+        joint_velocity_cost = self.joint_velocity_cost * self.cost_weights["joint_velocity"]
         joint_acceleration_cost = self.acceleration_cost * self.cost_weights["joint_acceleration"]
         orientation_cost = self.non_flat_base_cost * self.cost_weights["orientation"]
         collision_cost = self.collision_cost * self.cost_weights["collision"]
