@@ -29,6 +29,8 @@ For example, to run a pretrained model which outputs motor torques and has the r
 ```bash
 python train.py --run test --model_path .\models\2024-04-16_10-11-57-x=1_torque_ctrl_fixed_joint_range_5mill_iter_working_well\final_model.zip
 ```
+> [!NOTE]  
+> Some of the trained models in the `models/` directory were trained on older version of the environment (different observation space), as a result, they may not work on the latest code on main. For the above example to work as expected, you could try running it from the following commit: `4756dee0ffe7b4e5e78a60195c47d5427998b2a6`
 
 <details>
   <summary>Additional arguments for customizing training and testing</summary>
