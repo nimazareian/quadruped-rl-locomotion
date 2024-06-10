@@ -171,7 +171,7 @@ if __name__ == "__main__":
         "--ctrl_type",
         type=str,
         choices=["torque", "position"],
-        default="torque",
+        default="position",
         help="Whether the model should control the robot using torque or position control.",
     )
     parser.add_argument("--seed", type=int, default=0)
