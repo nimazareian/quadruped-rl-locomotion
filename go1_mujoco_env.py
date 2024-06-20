@@ -78,8 +78,8 @@ class Go1MujocoEnv(MujocoEnv):
         self._default_joint_position = np.array(self.model.key_ctrl[0])
 
         # vx (m/s), vy (m/s), wz (rad/s)
-        self._desired_velocity_min = np.array([-1.0, -0.0, -0.0])
-        self._desired_velocity_max = np.array([1.0, 0.0, 0.0])
+        self._desired_velocity_min = np.array([0.5, -0.0, -0.0])
+        self._desired_velocity_max = np.array([0.5, 0.0, 0.0])
         self._desired_velocity = self._sample_desired_vel()  # [0.5, 0.0, 0.0]
         self._obs_scale = {
             "linear_velocity": 2.0,
